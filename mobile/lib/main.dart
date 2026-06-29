@@ -37,12 +37,15 @@ class MutualWatchApp extends StatefulWidget {
 class _MutualWatchAppState extends State<MutualWatchApp>
     with WidgetsBindingObserver {
   late final AppState state;
+  final navigatorKey = GlobalKey<NavigatorState>();
+  bool updateCheckScheduled = false;
 
   @override
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
     state = AppState()..bootstrap();
+    _scheduleUpdateCheck();
   }
 
   @override
@@ -54,8 +57,12 @@ class _MutualWatchAppState extends State<MutualWatchApp>
 
   @override
   void didChangeAppLifecycleState(AppLifecycleState appState) {
-    if (appState == AppLifecycleState.resumed && state.user != null) {
-      state.refreshUsageAccess();
+    if (appState == AppLifecycleState.resumed) {
+      if (state.user != null) {
+        state.refreshUsageAccess();
+      }
+      updateCheckScheduled = false;
+      _scheduleUpdateCheck();
     }
   }
 
@@ -67,6 +74,7 @@ class _MutualWatchAppState extends State<MutualWatchApp>
         animation: state,
         builder: (context, _) {
           return MaterialApp(
+            navigatorKey: navigatorKey,
             debugShowCheckedModeBanner: false,
             title: 'Mutual Watch',
             theme: _buildTheme(Brightness.light),
@@ -85,6 +93,82 @@ class _MutualWatchAppState extends State<MutualWatchApp>
       ),
     );
   }
+
+  void _scheduleUpdateCheck() {
+    if (updateCheckScheduled) {
+      return;
+    }
+    updateCheckScheduled = true;
+    WidgetsBinding.instance.addPostFrameCallback((_) => _checkForUpdates());
+  }
+
+  Future<void> _checkForUpdates() async {
+    if (!mounted) {
+      return;
+    }
+    final update = await state.checkForUpdate();
+    final dialogContext = navigatorKey.currentContext;
+    if (!mounted ||
+        dialogContext == null ||
+        !dialogContext.mounted ||
+        update == null ||
+        !update.hasDownload) {
+      return;
+    }
+    await showUpdateDialog(dialogContext, state, update);
+  }
+}
+
+Future<void> showUpdateDialog(
+  BuildContext context,
+  AppState state,
+  AppUpdateInfo update,
+) async {
+  final notes = update.releaseNotes.trim();
+  await showDialog<void>(
+    context: context,
+    barrierDismissible: !update.required,
+    builder: (dialogContext) => AlertDialog(
+      title: Text('\u53d1\u73b0\u65b0\u7248\u672c ${update.versionName}'),
+      content: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            '\u5f53\u524d\u7248\u672c ${AppState.currentVersionName}\uff0c'
+            '\u53ef\u66f4\u65b0\u5230 ${update.versionName}\u3002',
+          ),
+          if (notes.isNotEmpty) ...[
+            const SizedBox(height: 12),
+            Text(notes),
+          ],
+        ],
+      ),
+      actions: [
+        if (!update.required)
+          TextButton(
+            onPressed: () {
+              state.dismissUpdatePrompt();
+              Navigator.of(dialogContext).pop();
+            },
+            child: const Text('\u7a0d\u540e'),
+          ),
+        FilledButton.icon(
+          onPressed: () async {
+            Navigator.of(dialogContext).pop();
+            await state.openUpdateDownload(update);
+            if (!context.mounted) {
+              return;
+            }
+            showAppSnackBar(
+                context, '\u5df2\u6253\u5f00\u4e0b\u8f7d\u94fe\u63a5');
+          },
+          icon: const Icon(Icons.download_rounded),
+          label: const Text('\u4e0b\u8f7d\u66f4\u65b0'),
+        ),
+      ],
+    ),
+  );
 }
 
 ThemeData _buildTheme(Brightness brightness) {

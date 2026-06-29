@@ -178,8 +178,8 @@ class AppState extends ChangeNotifier {
     if (checkingForUpdate) {
       return updateInfo;
     }
-    if (!force && (updatePromptShown || !api.hasAccessToken)) {
-      return updateInfo;
+    if (!force && updatePromptShown) {
+      return null;
     }
     checkingForUpdate = true;
     notifyListeners();

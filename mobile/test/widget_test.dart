@@ -1,6 +1,10 @@
 import 'package:flutter/material.dart';
+import 'dart:convert';
+
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:http/http.dart' as http;
+import 'package:http/testing.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import 'package:mutual_watch/api_client.dart';
@@ -53,6 +57,40 @@ void main() {
     expect(update.versionCode, 2);
     expect(update.hasDownload, isTrue);
     expect(update.required, isTrue);
+  });
+
+  test('update checks do not require a logged-in session', () async {
+    SharedPreferences.setMockInitialValues({});
+    final api = ApiClient(
+      updateUrl: 'https://updates.example/check',
+      client: MockClient((request) async {
+        expect(request.url.queryParameters['platform'], 'android');
+        expect(
+          request.url.queryParameters['currentVersionCode'],
+          AppState.currentVersionCode.toString(),
+        );
+        expect(request.headers.containsKey('authorization'), isFalse);
+        return http.Response(
+          jsonEncode({
+            'updateAvailable': true,
+            'versionCode': 2008,
+            'versionName': '0.2.5',
+            'apkUrl': 'https://example.com/mutual-watch.apk',
+            'releaseNotes': 'Update prompt fix.',
+          }),
+          200,
+          headers: {'content-type': 'application/json'},
+        );
+      }),
+    );
+    final state = AppState(api: api)..loading = false;
+
+    expect(api.hasAccessToken, isFalse);
+
+    final update = await state.checkForUpdate();
+
+    expect(update?.versionCode, 2008);
+    expect(state.updatePromptShown, isTrue);
   });
 
   test('formatInviteCode groups six digit codes', () {
