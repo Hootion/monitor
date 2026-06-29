@@ -95,6 +95,14 @@ describe("Mutual Watch API", () => {
           batteryPercent: 82,
           model: "Pixel Test"
         },
+        locationSnapshot: {
+          platform: "android",
+          capturedAt: "2026-06-22T02:01:00.000Z",
+          status: "available",
+          latitude: 31.230416,
+          longitude: 121.473701,
+          accuracyMeters: 18
+        },
         dailyReport: {
           platform: "android",
           date: reportDate,
@@ -108,6 +116,7 @@ describe("Mutual Watch API", () => {
             platform: "android",
             packageName: "com.example.chat",
             appName: "Chat",
+            clientSessionId: "chat-session-1",
             startedAt: `${reportDate}T00:12:00.000Z`,
             endedAt: `${reportDate}T00:22:00.000Z`,
             durationMs: 600000,
@@ -130,13 +139,38 @@ describe("Mutual Watch API", () => {
         expect(body.eventCount).toBe(1);
       });
 
+    await request(server)
+      .post("/telemetry/batch")
+      .set(auth(alice.accessToken))
+      .send({
+        appUsageSessions: [
+          {
+            platform: "android",
+            packageName: "com.example.chat",
+            appName: "Chat",
+            clientSessionId: "chat-session-1",
+            startedAt: `${reportDate}T00:12:00.000Z`,
+            endedAt: `${reportDate}T00:27:00.000Z`,
+            durationMs: 900000,
+            openCount: 1
+          }
+        ]
+      })
+      .expect(201)
+      .expect(({ body }) => {
+        expect(body.appUsageCount).toBe(1);
+      });
+
     await request(server).get("/partner/overview").set(auth(bob.accessToken)).expect(200).expect(({ body }) => {
       expect(body.partner.displayName).toBe("Alice");
       expect(body.latestSnapshot.batteryPercent).toBe(82);
+      expect(body.latestLocation.status).toBe("available");
+      expect(body.latestLocation.latitude).toBe(31.230416);
       expect(body.dailyReport.screenTimeMs).toBe(3600000);
     });
     await request(server).get(`/partner/app-usage?date=${reportDate}`).set(auth(bob.accessToken)).expect(200).expect(({ body }) => {
       expect(body.sessions).toHaveLength(1);
+      expect(body.sessions[0].durationMs).toBe(900000);
     });
     await request(server).get("/partner/events").set(auth(bob.accessToken)).expect(200).expect(({ body }) => {
       expect(body.events[0].type).toBe("app_opened");
@@ -165,8 +199,29 @@ describe("Mutual Watch API", () => {
 
     await request(server).post("/sharing/pause").set(auth(alice.accessToken)).send({ paused: true }).expect(201);
     await request(server).get("/partner/overview").set(auth(bob.accessToken)).expect(403);
+    await request(server)
+      .post("/telemetry/batch")
+      .set(auth(alice.accessToken))
+      .send({
+        dailyReport: {
+          platform: "android",
+          date: reportDate,
+          screenTimeMs: 999999,
+          pickupCount: 99,
+          longestContinuousMs: 999999
+        }
+      })
+      .expect(201)
+      .expect(({ body }) => {
+        expect(body.paused).toBe(true);
+        expect(body.appUsageCount).toBe(0);
+        expect(body.eventCount).toBe(0);
+      });
 
     await request(server).post("/sharing/pause").set(auth(alice.accessToken)).send({ paused: false }).expect(201);
+    await request(server).get(`/partner/daily-report?date=${reportDate}`).set(auth(bob.accessToken)).expect(200).expect(({ body }) => {
+      expect(body.report.screenTimeMs).toBe(120000);
+    });
     await request(server).post("/account/delete-data").set(auth(alice.accessToken)).send().expect(201);
     await request(server).get(`/partner/daily-report?date=${reportDate}`).set(auth(bob.accessToken)).expect(404);
   });

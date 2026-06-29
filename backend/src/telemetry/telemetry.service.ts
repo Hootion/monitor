@@ -13,6 +13,15 @@ export class TelemetryService {
   ) {}
 
   ingest(userId: string, batch: TelemetryBatch) {
+    const user = this.store.findUser(userId);
+    if (user?.sharingPaused) {
+      return {
+        accepted: true,
+        paused: true,
+        appUsageCount: 0,
+        eventCount: 0
+      };
+    }
     const result = this.store.addTelemetry(userId, batch);
     const partnerId = this.store.getPartnerId(userId);
     if (partnerId) {
@@ -20,6 +29,7 @@ export class TelemetryService {
         partnerId: userId,
         changedAt: new Date().toISOString(),
         snapshot: Boolean(result.snapshot),
+        location: Boolean(result.location),
         dailyReport: Boolean(result.dailyReport),
         appUsageCount: result.appUsageCount,
         eventCount: result.eventCount
@@ -35,6 +45,7 @@ export class TelemetryService {
     return {
       partner: this.store.toPublicUser(partner),
       latestSnapshot: this.store.latestSnapshot(partnerId),
+      latestLocation: this.store.latestLocation(partnerId),
       dailyReport: this.store.reportForDate(partnerId, today()),
       latestEvents: this.store.eventsForUser(partnerId, 10)
     };
@@ -69,4 +80,3 @@ export class TelemetryService {
     return partnerId;
   }
 }
-

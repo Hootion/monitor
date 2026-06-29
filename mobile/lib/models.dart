@@ -1,3 +1,5 @@
+import 'dart:convert';
+
 class PublicUser {
   const PublicUser({
     required this.id,
@@ -40,6 +42,32 @@ class AuthBundle {
       );
 }
 
+class AppUpdateInfo {
+  const AppUpdateInfo({
+    required this.versionName,
+    required this.versionCode,
+    required this.apkUrl,
+    required this.releaseNotes,
+    required this.required,
+  });
+
+  final String versionName;
+  final int versionCode;
+  final String apkUrl;
+  final String releaseNotes;
+  final bool required;
+
+  bool get hasDownload => apkUrl.trim().isNotEmpty;
+
+  factory AppUpdateInfo.fromJson(Map<String, dynamic> json) => AppUpdateInfo(
+        versionName: json['versionName'] as String? ?? '',
+        versionCode: _asInt(json['versionCode']) ?? 0,
+        apkUrl: json['apkUrl'] as String? ?? '',
+        releaseNotes: json['releaseNotes'] as String? ?? '',
+        required: json['required'] as bool? ?? false,
+      );
+}
+
 class DeviceSnapshot {
   const DeviceSnapshot({
     required this.platform,
@@ -48,6 +76,7 @@ class DeviceSnapshot {
     this.mobileBytesToday,
     this.networkSpeedKbps,
     this.networkType,
+    this.networkName,
     this.bluetoothState,
     this.volumePercent,
     this.batteryPercent,
@@ -65,6 +94,7 @@ class DeviceSnapshot {
   final int? mobileBytesToday;
   final int? networkSpeedKbps;
   final String? networkType;
+  final String? networkName;
   final String? bluetoothState;
   final int? volumePercent;
   final int? batteryPercent;
@@ -77,11 +107,13 @@ class DeviceSnapshot {
 
   factory DeviceSnapshot.fromJson(Map<String, dynamic> json) => DeviceSnapshot(
         platform: json['platform'] as String? ?? 'android',
-        capturedAt: json['capturedAt'] as String? ?? DateTime.now().toIso8601String(),
+        capturedAt:
+            json['capturedAt'] as String? ?? DateTime.now().toIso8601String(),
         wifiBytesToday: _asInt(json['wifiBytesToday']),
         mobileBytesToday: _asInt(json['mobileBytesToday']),
         networkSpeedKbps: _asInt(json['networkSpeedKbps']),
         networkType: json['networkType'] as String?,
+        networkName: json['networkName'] as String?,
         bluetoothState: json['bluetoothState'] as String?,
         volumePercent: _asInt(json['volumePercent']),
         batteryPercent: _asInt(json['batteryPercent']),
@@ -90,7 +122,9 @@ class DeviceSnapshot {
         osVersion: json['osVersion'] as String?,
         storageUsedBytes: _asInt(json['storageUsedBytes']),
         storageTotalBytes: _asInt(json['storageTotalBytes']),
-        unsupported: (json['unsupported'] as List<dynamic>? ?? const []).map((item) => item.toString()).toList(),
+        unsupported: (json['unsupported'] as List<dynamic>? ?? const [])
+            .map((item) => item.toString())
+            .toList(),
       );
 
   Map<String, dynamic> toJson() => {
@@ -100,6 +134,7 @@ class DeviceSnapshot {
         'mobileBytesToday': mobileBytesToday,
         'networkSpeedKbps': networkSpeedKbps,
         'networkType': networkType,
+        'networkName': networkName,
         'bluetoothState': bluetoothState,
         'volumePercent': volumePercent,
         'batteryPercent': batteryPercent,
@@ -131,14 +166,18 @@ class DailyUsageReport {
   final String? firstUseAt;
   final List<String> unsupported;
 
-  factory DailyUsageReport.fromJson(Map<String, dynamic> json) => DailyUsageReport(
-        date: json['date'] as String? ?? DateTime.now().toIso8601String().substring(0, 10),
+  factory DailyUsageReport.fromJson(Map<String, dynamic> json) =>
+      DailyUsageReport(
+        date: json['date'] as String? ??
+            DateTime.now().toIso8601String().substring(0, 10),
         platform: json['platform'] as String? ?? 'android',
         screenTimeMs: _asInt(json['screenTimeMs']) ?? 0,
         pickupCount: _asInt(json['pickupCount']) ?? 0,
         longestContinuousMs: _asInt(json['longestContinuousMs']) ?? 0,
         firstUseAt: json['firstUseAt'] as String?,
-        unsupported: (json['unsupported'] as List<dynamic>? ?? const []).map((item) => item.toString()).toList(),
+        unsupported: (json['unsupported'] as List<dynamic>? ?? const [])
+            .map((item) => item.toString())
+            .toList(),
       );
 
   Map<String, dynamic> toJson() => {
@@ -152,6 +191,43 @@ class DailyUsageReport {
       };
 }
 
+class DeviceLocation {
+  const DeviceLocation({
+    required this.platform,
+    required this.capturedAt,
+    required this.status,
+    this.latitude,
+    this.longitude,
+    this.accuracyMeters,
+  });
+
+  final String platform;
+  final String capturedAt;
+  final String status;
+  final double? latitude;
+  final double? longitude;
+  final double? accuracyMeters;
+
+  factory DeviceLocation.fromJson(Map<String, dynamic> json) => DeviceLocation(
+        platform: json['platform'] as String? ?? 'android',
+        capturedAt:
+            json['capturedAt'] as String? ?? DateTime.now().toIso8601String(),
+        status: json['status'] as String? ?? 'unknown',
+        latitude: _asDouble(json['latitude']),
+        longitude: _asDouble(json['longitude']),
+        accuracyMeters: _asDouble(json['accuracyMeters']),
+      );
+
+  Map<String, dynamic> toJson() => {
+        'platform': platform,
+        'capturedAt': capturedAt,
+        'status': status,
+        'latitude': latitude,
+        'longitude': longitude,
+        'accuracyMeters': accuracyMeters,
+      };
+}
+
 class AppUsageSession {
   const AppUsageSession({
     required this.packageName,
@@ -160,21 +236,26 @@ class AppUsageSession {
     required this.durationMs,
     required this.platform,
     this.appName,
+    this.clientSessionId,
     this.openCount,
   });
 
   final String packageName;
   final String? appName;
+  final String? clientSessionId;
   final String startedAt;
   final String endedAt;
   final int durationMs;
   final int? openCount;
   final String platform;
 
-  factory AppUsageSession.fromJson(Map<String, dynamic> json) => AppUsageSession(
+  factory AppUsageSession.fromJson(Map<String, dynamic> json) =>
+      AppUsageSession(
         packageName: json['packageName'] as String? ?? 'unknown',
         appName: json['appName'] as String?,
-        startedAt: json['startedAt'] as String? ?? DateTime.now().toIso8601String(),
+        clientSessionId: json['clientSessionId'] as String?,
+        startedAt:
+            json['startedAt'] as String? ?? DateTime.now().toIso8601String(),
         endedAt: json['endedAt'] as String? ?? DateTime.now().toIso8601String(),
         durationMs: _asInt(json['durationMs']) ?? 0,
         openCount: _asInt(json['openCount']),
@@ -184,6 +265,7 @@ class AppUsageSession {
   Map<String, dynamic> toJson() => {
         'packageName': packageName,
         'appName': appName,
+        'clientSessionId': clientSessionId,
         'startedAt': startedAt,
         'endedAt': endedAt,
         'durationMs': durationMs,
@@ -208,11 +290,13 @@ class OperationEvent {
   final Map<String, dynamic>? details;
 
   factory OperationEvent.fromJson(Map<String, dynamic> json) => OperationEvent(
-        clientEventId: json['clientEventId'] as String? ?? json['id'] as String?,
+        clientEventId:
+            json['clientEventId'] as String? ?? json['id'] as String?,
         type: json['type'] as String? ?? 'app_opened',
-        occurredAt: json['occurredAt'] as String? ?? DateTime.now().toIso8601String(),
+        occurredAt:
+            json['occurredAt'] as String? ?? DateTime.now().toIso8601String(),
         platform: json['platform'] as String? ?? 'android',
-        details: json['details'] == null ? null : Map<String, dynamic>.from(json['details'] as Map),
+        details: _asStringMap(json['details']),
       );
 
   Map<String, dynamic> toJson() => {
@@ -227,19 +311,23 @@ class OperationEvent {
 class TelemetryBatch {
   const TelemetryBatch({
     this.deviceSnapshot,
+    this.locationSnapshot,
     this.appUsageSessions = const [],
     this.dailyReport,
     this.events = const [],
   });
 
   final DeviceSnapshot? deviceSnapshot;
+  final DeviceLocation? locationSnapshot;
   final List<AppUsageSession> appUsageSessions;
   final DailyUsageReport? dailyReport;
   final List<OperationEvent> events;
 
   Map<String, dynamic> toJson() => {
         'deviceSnapshot': deviceSnapshot?.toJson(),
-        'appUsageSessions': appUsageSessions.map((item) => item.toJson()).toList(),
+        'locationSnapshot': locationSnapshot?.toJson(),
+        'appUsageSessions':
+            appUsageSessions.map((item) => item.toJson()).toList(),
         'dailyReport': dailyReport?.toJson(),
         'events': events.map((item) => item.toJson()).toList(),
       };
@@ -249,25 +337,35 @@ class PartnerOverview {
   const PartnerOverview({
     required this.partner,
     this.latestSnapshot,
+    this.latestLocation,
     this.dailyReport,
     this.latestEvents = const [],
   });
 
   final PublicUser partner;
   final DeviceSnapshot? latestSnapshot;
+  final DeviceLocation? latestLocation;
   final DailyUsageReport? dailyReport;
   final List<OperationEvent> latestEvents;
 
-  factory PartnerOverview.fromJson(Map<String, dynamic> json) => PartnerOverview(
+  factory PartnerOverview.fromJson(Map<String, dynamic> json) =>
+      PartnerOverview(
         partner: PublicUser.fromJson(json['partner'] as Map<String, dynamic>),
         latestSnapshot: json['latestSnapshot'] == null
             ? null
-            : DeviceSnapshot.fromJson(json['latestSnapshot'] as Map<String, dynamic>),
+            : DeviceSnapshot.fromJson(
+                json['latestSnapshot'] as Map<String, dynamic>),
+        latestLocation: json['latestLocation'] == null
+            ? null
+            : DeviceLocation.fromJson(
+                json['latestLocation'] as Map<String, dynamic>),
         dailyReport: json['dailyReport'] == null
             ? null
-            : DailyUsageReport.fromJson(json['dailyReport'] as Map<String, dynamic>),
+            : DailyUsageReport.fromJson(
+                json['dailyReport'] as Map<String, dynamic>),
         latestEvents: (json['latestEvents'] as List<dynamic>? ?? const [])
-            .map((item) => OperationEvent.fromJson(item as Map<String, dynamic>))
+            .map(
+                (item) => OperationEvent.fromJson(item as Map<String, dynamic>))
             .toList(),
       );
 }
@@ -277,4 +375,27 @@ int? _asInt(Object? value) {
   if (value is int) return value;
   if (value is num) return value.round();
   return int.tryParse(value.toString());
+}
+
+double? _asDouble(Object? value) {
+  if (value == null) return null;
+  if (value is double) return value;
+  if (value is num) return value.toDouble();
+  return double.tryParse(value.toString());
+}
+
+Map<String, dynamic>? _asStringMap(Object? value) {
+  if (value == null) return null;
+  if (value is Map) return Map<String, dynamic>.from(value);
+  if (value is String && value.trim().isNotEmpty) {
+    try {
+      final decoded = jsonDecode(value);
+      if (decoded is Map) {
+        return Map<String, dynamic>.from(decoded);
+      }
+    } on FormatException {
+      return null;
+    }
+  }
+  return null;
 }

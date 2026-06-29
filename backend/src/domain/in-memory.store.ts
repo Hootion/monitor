@@ -4,6 +4,7 @@ import {
   AppUsageSession,
   ConsentLog,
   DailyUsageReport,
+  DeviceLocation,
   DeviceSnapshot,
   OperationEvent,
   Pairing,
@@ -25,6 +26,7 @@ export class InMemoryStore {
   private pairings = new Map<string, Pairing>();
   private consentLogs: ConsentLog[] = [];
   private snapshots = new Map<string, DeviceSnapshot[]>();
+  private locations = new Map<string, DeviceLocation[]>();
   private appUsage = new Map<string, AppUsageSession[]>();
   private dailyReports = new Map<string, DailyUsageReport>();
   private events = new Map<string, OperationEvent[]>();
@@ -152,6 +154,7 @@ export class InMemoryStore {
 
   addTelemetry(userId: string, batch: TelemetryBatch): {
     snapshot?: DeviceSnapshot;
+    location?: DeviceLocation;
     dailyReport?: DailyUsageReport;
     appUsageCount: number;
     eventCount: number;
@@ -164,6 +167,14 @@ export class InMemoryStore {
       this.snapshots.set(userId, list.slice(-500));
     }
 
+    let location: DeviceLocation | undefined;
+    if (batch.locationSnapshot) {
+      location = { ...batch.locationSnapshot, id: randomUUID(), userId };
+      const list = this.locations.get(userId) ?? [];
+      list.push(location);
+      this.locations.set(userId, list.slice(-500));
+    }
+
     let dailyReport: DailyUsageReport | undefined;
     if (batch.dailyReport) {
       dailyReport = { ...batch.dailyReport, id: randomUUID(), userId };
@@ -174,7 +185,27 @@ export class InMemoryStore {
     if (batch.appUsageSessions?.length) {
       const list = this.appUsage.get(userId) ?? [];
       for (const session of batch.appUsageSessions) {
-        list.push({ ...session, id: randomUUID(), userId });
+        const existingIndex = session.clientSessionId
+          ? list.findIndex((item) => item.clientSessionId === session.clientSessionId)
+          : -1;
+        if (existingIndex >= 0) {
+          const existing = list[existingIndex];
+          list[existingIndex] = {
+            ...existing,
+            ...session,
+            id: existing.id,
+            userId,
+            appName: session.appName ?? existing.appName,
+            startedAt: existing.startedAt,
+            endedAt: new Date(session.endedAt).getTime() > new Date(existing.endedAt).getTime()
+              ? session.endedAt
+              : existing.endedAt,
+            durationMs: Math.max(existing.durationMs, session.durationMs),
+            openCount: Math.max(existing.openCount ?? 0, session.openCount ?? 0)
+          };
+        } else {
+          list.push({ ...session, id: randomUUID(), userId });
+        }
         appUsageCount += 1;
       }
       this.appUsage.set(userId, list.slice(-5000));
@@ -194,11 +225,16 @@ export class InMemoryStore {
       this.events.set(userId, list.slice(0, 5000));
     }
 
-    return { snapshot, dailyReport, appUsageCount, eventCount };
+    return { snapshot, location, dailyReport, appUsageCount, eventCount };
   }
 
   latestSnapshot(userId: string): DeviceSnapshot | undefined {
     const list = this.snapshots.get(userId) ?? [];
+    return list[list.length - 1];
+  }
+
+  latestLocation(userId: string): DeviceLocation | undefined {
+    const list = this.locations.get(userId) ?? [];
     return list[list.length - 1];
   }
 
@@ -218,6 +254,7 @@ export class InMemoryStore {
 
   deleteUserTelemetry(userId: string): void {
     this.snapshots.delete(userId);
+    this.locations.delete(userId);
     this.appUsage.delete(userId);
     this.events.delete(userId);
     for (const key of [...this.dailyReports.keys()]) {

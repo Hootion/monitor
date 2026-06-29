@@ -13,8 +13,11 @@ import android.content.IntentFilter
 import android.content.pm.PackageManager
 import android.media.AudioManager
 import android.net.ConnectivityManager
+import android.net.Uri
 import android.net.NetworkCapabilities
 import android.net.TrafficStats
+import android.net.wifi.WifiManager
+import android.location.LocationManager
 import android.os.BatteryManager
 import android.os.Build
 import android.os.Environment
@@ -28,6 +31,13 @@ import java.time.ZoneId
 
 class MainActivity : FlutterActivity() {
     private val channelName = "app.mutual_watch/device"
+    private val appNameCache = mutableMapOf<String, String>()
+
+    private data class NetworkInfo(
+        val type: String,
+        val name: String?,
+        val speedKbps: Int?
+    )
 
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
         super.configureFlutterEngine(flutterEngine)
@@ -39,16 +49,39 @@ class MainActivity : FlutterActivity() {
                         startActivity(Intent(Settings.ACTION_USAGE_ACCESS_SETTINGS))
                         result.success(null)
                     }
-                    "startForegroundCollection" -> {
-                        val intent = Intent(this, TelemetryForegroundService::class.java)
-                        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-                            startForegroundService(intent)
+                    "openAppSettings" -> {
+                        val intent = Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS).apply {
+                            data = Uri.parse("package:$packageName")
+                        }
+                        startActivity(intent)
+                        result.success(null)
+                    }
+                    "openUrl" -> {
+                        val url = call.argument<String>("url")
+                        if (url.isNullOrBlank()) {
+                            result.error("invalid_url", "URL is required", null)
                         } else {
-                            startService(intent)
+                            startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(url)))
+                            result.success(null)
+                        }
+                    }
+                    "startForegroundCollection" -> {
+                        val intent = Intent(this, TelemetryForegroundService::class.java).apply {
+                            putExtra("apiBaseUrl", call.argument<String>("apiBaseUrl"))
+                            putExtra("accessToken", call.argument<String>("accessToken"))
+                            putExtra("refreshToken", call.argument<String>("refreshToken"))
+                        }
+                        runCatching {
+                            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                                startForegroundService(intent)
+                            } else {
+                                startService(intent)
+                            }
                         }
                         result.success(null)
                     }
                     "getDeviceSnapshot" -> result.success(deviceSnapshot())
+                    "getLocationSnapshot" -> result.success(locationSnapshot())
                     "getTodayUsageReport" -> result.success(todayUsageReport())
                     "getAppUsage" -> result.success(appUsageSessions())
                     "getRecentEvents" -> result.success(recentEvents())
@@ -94,8 +127,9 @@ class MainActivity : FlutterActivity() {
             "capturedAt" to isoNow(),
             "wifiBytesToday" to traffic.first,
             "mobileBytesToday" to traffic.second,
-            "networkSpeedKbps" to network.second,
-            "networkType" to network.first,
+            "networkSpeedKbps" to network.speedKbps,
+            "networkType" to network.type,
+            "networkName" to network.name,
             "bluetoothState" to bluetoothState(),
             "volumePercent" to volume,
             "batteryPercent" to batteryPercent,
@@ -108,9 +142,9 @@ class MainActivity : FlutterActivity() {
         )
     }
 
-    private fun networkInfo(): Pair<String, Int?> {
+    private fun networkInfo(): NetworkInfo {
         val connectivity = getSystemService(ConnectivityManager::class.java)
-        val capabilities = connectivity.getNetworkCapabilities(connectivity.activeNetwork) ?: return Pair("offline", null)
+        val capabilities = connectivity.getNetworkCapabilities(connectivity.activeNetwork) ?: return NetworkInfo("offline", null, null)
         val type = when {
             capabilities.hasTransport(NetworkCapabilities.TRANSPORT_WIFI) -> "wifi"
             capabilities.hasTransport(NetworkCapabilities.TRANSPORT_CELLULAR) -> "cellular"
@@ -118,7 +152,64 @@ class MainActivity : FlutterActivity() {
             capabilities.hasTransport(NetworkCapabilities.TRANSPORT_ETHERNET) -> "ethernet"
             else -> "unknown"
         }
-        return Pair(type, capabilities.linkDownstreamBandwidthKbps)
+        val name = if (type == "wifi") wifiNetworkName() else null
+        return NetworkInfo(type, name, capabilities.linkDownstreamBandwidthKbps)
+    }
+
+    private fun wifiNetworkName(): String {
+        if (checkSelfPermission(Manifest.permission.ACCESS_FINE_LOCATION) != PackageManager.PERMISSION_GRANTED) {
+            return "unauthorized"
+        }
+        val wifi = applicationContext.getSystemService(WifiManager::class.java) ?: return "unsupported"
+        val ssid = wifi.connectionInfo?.ssid
+            ?.trim()
+            ?.trim('"')
+            ?.takeIf { it.isNotEmpty() && it != "<unknown ssid>" && !it.startsWith("0x") }
+        return ssid ?: "unknown"
+    }
+
+    private fun locationSnapshot(): Map<String, Any?> {
+        if (!hasLocationPermission()) {
+            return locationStatus("unauthorized")
+        }
+        return runCatching {
+            val locationManager = getSystemService(LocationManager::class.java)
+            val providers = locationManager.getProviders(true)
+            if (providers.isEmpty()) {
+                locationStatus("disabled")
+            } else {
+                val location = providers.mapNotNull { provider ->
+                    runCatching { locationManager.getLastKnownLocation(provider) }.getOrNull()
+                }.maxByOrNull { it.time }
+                if (location == null) {
+                    locationStatus("unavailable")
+                } else {
+                    mapOf(
+                        "platform" to "android",
+                        "capturedAt" to isoFromMillis(location.time),
+                        "status" to "available",
+                        "latitude" to location.latitude,
+                        "longitude" to location.longitude,
+                        "accuracyMeters" to if (location.hasAccuracy()) location.accuracy.toDouble() else null
+                    )
+                }
+            }
+        }.getOrElse {
+            locationStatus("unknown")
+        }
+    }
+
+    private fun locationStatus(status: String): Map<String, Any?> {
+        return mapOf(
+            "platform" to "android",
+            "capturedAt" to isoNow(),
+            "status" to status
+        )
+    }
+
+    private fun hasLocationPermission(): Boolean {
+        return checkSelfPermission(Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED ||
+            checkSelfPermission(Manifest.permission.ACCESS_COARSE_LOCATION) == PackageManager.PERMISSION_GRANTED
     }
 
     private fun bluetoothState(): String {
@@ -213,6 +304,7 @@ class MainActivity : FlutterActivity() {
             "platform" to "android",
             "packageName" to packageName,
             "appName" to appName(packageName),
+            "clientSessionId" to "app_usage:$packageName:$startedAt",
             "startedAt" to isoFromMillis(startedAt),
             "endedAt" to isoFromMillis(endedAt),
             "durationMs" to duration,
@@ -252,9 +344,20 @@ class MainActivity : FlutterActivity() {
     }
 
     private fun appName(packageName: String): String {
-        return runCatching {
-            val info = packageManager.getApplicationInfo(packageName, 0)
+        appNameCache[packageName]?.let { return it }
+        val label = runCatching {
+            val info = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                packageManager.getApplicationInfo(packageName, PackageManager.ApplicationInfoFlags.of(0))
+            } else {
+                @Suppress("DEPRECATION")
+                packageManager.getApplicationInfo(packageName, 0)
+            }
             packageManager.getApplicationLabel(info).toString()
+                .trim()
+                .takeIf { it.isNotEmpty() }
+                ?: packageName
         }.getOrDefault(packageName)
+        appNameCache[packageName] = label
+        return label
     }
 }

@@ -19,15 +19,24 @@ class ApiClient {
   ApiClient({
     this.baseUrl = const String.fromEnvironment(
       'API_BASE_URL',
-      defaultValue: 'http://10.0.2.2:3000',
+      defaultValue: 'https://uovwpzpfdweacfftqptj.supabase.co/functions/v1/api',
+    ),
+    this.updateUrl = const String.fromEnvironment(
+      'APP_UPDATE_URL',
+      defaultValue:
+          'https://uovwpzpfdweacfftqptj.supabase.co/functions/v1/app-update',
     ),
     http.Client? client,
   }) : _client = client ?? http.Client();
 
   final String baseUrl;
+  final String updateUrl;
   final http.Client _client;
   String? accessToken;
   String? refreshToken;
+  Future<bool>? _refreshInFlight;
+
+  bool get hasAccessToken => accessToken?.isNotEmpty == true;
 
   Future<void> loadTokens() async {
     final prefs = await SharedPreferences.getInstance();
@@ -49,6 +58,38 @@ class ApiClient {
     final prefs = await SharedPreferences.getInstance();
     await prefs.remove('accessToken');
     await prefs.remove('refreshToken');
+  }
+
+  Future<bool> refreshSession() async {
+    final token = refreshToken;
+    if (token == null) return false;
+    final inFlight = _refreshInFlight;
+    if (inFlight != null) return inFlight;
+
+    _refreshInFlight = _refreshSession(token);
+    try {
+      return await _refreshInFlight!;
+    } finally {
+      _refreshInFlight = null;
+    }
+  }
+
+  Future<bool> _refreshSession(String token) async {
+    try {
+      final json = await _request(
+        'POST',
+        '/auth/refresh',
+        body: {'refreshToken': token},
+        auth: false,
+        refreshOnUnauthorized: false,
+      );
+      final bundle = AuthBundle.fromJson(json);
+      await saveTokens(bundle);
+      return true;
+    } catch (_) {
+      await clearTokens();
+      return false;
+    }
   }
 
   Future<AuthBundle> register({
@@ -131,7 +172,8 @@ class ApiClient {
   }
 
   Future<PublicUser> setSharingPaused(bool paused) async {
-    final json = await _request('POST', '/sharing/pause', body: {'paused': paused});
+    final json =
+        await _request('POST', '/sharing/pause', body: {'paused': paused});
     return PublicUser.fromJson(json['user'] as Map<String, dynamic>);
   }
 
@@ -139,16 +181,45 @@ class ApiClient {
     await _request('POST', '/account/delete-data');
   }
 
+  Future<AppUpdateInfo?> checkForUpdate({
+    required int currentVersionCode,
+  }) async {
+    final uri = Uri.parse(updateUrl).replace(queryParameters: {
+      'platform': 'android',
+      'currentVersionCode': currentVersionCode.toString(),
+    });
+    final response = await _client.get(uri);
+    final text = utf8.decode(response.bodyBytes);
+    final decoded = text.isEmpty
+        ? <String, dynamic>{}
+        : jsonDecode(text) as Map<String, dynamic>;
+    if (response.statusCode >= 400) {
+      throw ApiException(
+        decoded['message']?.toString() ?? '检查更新失败',
+        response.statusCode,
+      );
+    }
+    if (decoded['updateAvailable'] != true) {
+      return null;
+    }
+    return AppUpdateInfo.fromJson(decoded);
+  }
+
   Future<Map<String, dynamic>> _request(
     String method,
     String path, {
     Map<String, dynamic>? body,
     bool auth = true,
+    bool refreshOnUnauthorized = true,
   }) async {
     final uri = Uri.parse('$baseUrl$path');
     final headers = <String, String>{'Content-Type': 'application/json'};
-    if (auth && accessToken != null) {
-      headers['Authorization'] = 'Bearer $accessToken';
+    if (auth) {
+      final token = accessToken;
+      if (token == null || token.isEmpty) {
+        throw const ApiException('登录已过期，请重新登录。', 401);
+      }
+      headers['Authorization'] = 'Bearer $token';
     }
     final response = await _client.send(
       http.Request(method, uri)
@@ -156,11 +227,28 @@ class ApiClient {
         ..body = body == null ? '' : jsonEncode(body),
     );
     final text = await response.stream.bytesToString();
-    final decoded = text.isEmpty ? <String, dynamic>{} : jsonDecode(text) as Map<String, dynamic>;
+    final decoded = text.isEmpty
+        ? <String, dynamic>{}
+        : jsonDecode(text) as Map<String, dynamic>;
+    if (response.statusCode == 401 &&
+        auth &&
+        refreshOnUnauthorized &&
+        refreshToken != null) {
+      final refreshed = await refreshSession();
+      if (refreshed) {
+        return _request(
+          method,
+          path,
+          body: body,
+          auth: auth,
+          refreshOnUnauthorized: false,
+        );
+      }
+    }
     if (response.statusCode >= 400) {
-      throw ApiException(decoded['message']?.toString() ?? '请求失败', response.statusCode);
+      throw ApiException(
+          decoded['message']?.toString() ?? '请求失败', response.statusCode);
     }
     return decoded;
   }
 }
-

@@ -1,0 +1,21 @@
+group 'com.amap.flutter.amap_flutter_location'
+version '1.0'
+
+apply plugin: 'com.android.library'
+
+android {
+    namespace 'com.amap.flutter.amap_flutter_location'
+    compileSdkVersion 36
+
+    defaultConfig {
+        minSdkVersion 23
+    }
+
+    lint {
+        disable 'InvalidPackage'
+    }
+}
+
+dependencies {
+    compileOnly 'com.amap.api:location:6.4.9'
+}

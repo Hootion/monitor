@@ -7,17 +7,26 @@ environment:
   sdk: ">=3.4.0 <4.0.0"
 
 dependencies:
+  amap_flutter_base: ^3.0.0
+  amap_flutter_location: ^3.0.0
+  amap_flutter_map: ^3.0.0
   flutter:
     sdk: flutter
   http: ^1.2.2
   shared_preferences: ^2.3.4
-  socket_io_client: ^3.0.2
 
 dev_dependencies:
   flutter_test:
     sdk: flutter
   flutter_lints: ^5.0.0
 
+dependency_overrides:
+  amap_flutter_base:
+    path: third_party/amap_flutter_base
+  amap_flutter_location:
+    path: third_party/amap_flutter_location
+  amap_flutter_map:
+    path: third_party/amap_flutter_map
+
 flutter:
   uses-material-design: true
-

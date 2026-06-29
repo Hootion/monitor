@@ -58,6 +58,7 @@ export interface DeviceSnapshot {
   mobileBytesToday?: number | null;
   networkSpeedKbps?: number | null;
   networkType?: string | null;
+  networkName?: string | null;
   bluetoothState?: "on" | "off" | "unauthorized" | "unsupported" | "unknown" | null;
   volumePercent?: number | null;
   batteryPercent?: number | null;
@@ -69,11 +70,23 @@ export interface DeviceSnapshot {
   unsupported?: string[];
 }
 
+export interface DeviceLocation {
+  id?: string;
+  userId?: string;
+  platform: Platform;
+  capturedAt: string;
+  status: "available" | "unauthorized" | "disabled" | "unavailable" | "unsupported" | "unknown";
+  latitude?: number | null;
+  longitude?: number | null;
+  accuracyMeters?: number | null;
+}
+
 export interface AppUsageSession {
   id?: string;
   userId?: string;
   packageName: string;
   appName?: string | null;
+  clientSessionId?: string | null;
   startedAt: string;
   endedAt: string;
   durationMs: number;
@@ -105,6 +118,7 @@ export interface OperationEvent {
 
 export interface TelemetryBatch {
   deviceSnapshot?: DeviceSnapshot;
+  locationSnapshot?: DeviceLocation;
   appUsageSessions?: AppUsageSession[];
   dailyReport?: DailyUsageReport;
   events?: OperationEvent[];
@@ -113,7 +127,7 @@ export interface TelemetryBatch {
 export interface PartnerOverview {
   partner: PublicUser;
   latestSnapshot?: DeviceSnapshot;
+  latestLocation?: DeviceLocation;
   dailyReport?: DailyUsageReport;
   latestEvents: OperationEvent[];
 }
-
