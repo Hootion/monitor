@@ -251,11 +251,12 @@ if ([string]::IsNullOrWhiteSpace($ApkUrl)) {
             -Name $VersionName `
             -Notes $ReleaseNotes `
             -IsRequired $Required.IsPresent
-        if ($null -eq $publishResponse.release) {
+        $releaseProperty = $publishResponse.PSObject.Properties["release"]
+        if ($null -eq $releaseProperty -or $null -eq $releaseProperty.Value) {
             $responseJson = $publishResponse | ConvertTo-Json -Depth 6
             throw "Release publish did not return release metadata: $responseJson"
         }
-        $ApkUrl = $publishResponse.release.apkUrl
+        $ApkUrl = $releaseProperty.Value.apkUrl
     }
 }
 

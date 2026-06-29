@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:ffi' show Abi;
 import 'dart:math' as math;
 import 'dart:io' show Platform;
 
@@ -1634,7 +1635,7 @@ class _RealtimeLocationPanelState extends State<RealtimeLocationPanel> {
   String? _approvalNumber;
 
   bool get _hasAmapKey => AppState.amapAndroidKey.trim().isNotEmpty;
-  bool get _canRenderAmap => Platform.isAndroid || Platform.isIOS;
+  bool get _canRenderAmap => canRenderAmap();
 
   @override
   void didUpdateWidget(covariant RealtimeLocationPanel oldWidget) {
@@ -5389,6 +5390,17 @@ String runtimePlatform() {
   if (Platform.isIOS) return 'ios';
   if (Platform.isAndroid) return 'android';
   return 'android';
+}
+
+bool canRenderAmap() {
+  if (Platform.isIOS) {
+    return true;
+  }
+  if (!Platform.isAndroid) {
+    return false;
+  }
+  final abi = Abi.current();
+  return abi == Abi.androidArm || abi == Abi.androidArm64;
 }
 
 String appInitial(String value) {
