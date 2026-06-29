@@ -1,57 +1,127 @@
 # Android 更新发布流程
 
-客户端不是系统级静默推送，而是启动后检查 `app-update`。发布新版时需要把 APK 放到 HTTPS 地址，并登记到 `mutual_watch.app_releases`。
+状态记录更新时间：2026-06-30。
+
+客户端不是系统级静默推送，而是请求 `app-update` 接口检查新版本。Android 安装 APK 仍需要用户在系统安装界面确认。
+
+## 当前线上版本
+
+- 版本名：`0.2.5`
+- 版本码：`2008`
+- APK：`https://uovwpzpfdweacfftqptj.supabase.co/storage/v1/object/public/app-releases/android/mutual-watch-0.2.5-2008.apk`
+- 更新接口：`https://uovwpzpfdweacfftqptj.supabase.co/functions/v1/app-update`
+
+从 `0.2.5` 开始，App 会在启动和回到前台时检查更新，并且检查更新不要求用户已经登录。更旧版本如果停在登录页、登录失效或网络异常，可能不会自动弹出更新框，可以直接使用 APK 链接安装。
 
 ## 一次性线上准备
 
-1. 应用 Supabase migrations，包含 `202606290005_app_release_storage_bucket.sql`，它会创建公开下载 bucket：`app-releases`。
-2. 重新部署 `supabase/functions/app-update`。
-3. 生成一个本机发布 token，并把 token 的 SHA-256 hash 写入 `mutual_watch.app_release_admin_tokens`。当前仓库根目录的 `.env.release.local` 已用于保存本机 token；该文件被 `.gitignore` 忽略。
+这些准备已经完成，只在重新建项目或迁移环境时需要再做：
 
-## 本地发布新版
+1. 应用 Supabase migrations，包含 `202606290005_app_release_storage_bucket.sql`，创建公开下载 bucket：`app-releases`。
+2. 部署 `supabase/functions/app-update`。
+3. 生成发布 token，将 SHA-256 hash 写入 `mutual_watch.app_release_admin_tokens`。
+4. 在本机 `.env.release.local` 保存发布所需变量。该文件被 `.gitignore` 忽略，不应提交。
 
-在本地 PowerShell 里设置这些变量，不要写入仓库：
+`.env.release.local` 至少需要：
 
 ```powershell
-$env:SUPABASE_URL="https://uovwpzpfdweacfftqptj.supabase.co"
-$env:AMAP_ANDROID_KEY="你的高德 Android Key"
+SUPABASE_URL=https://uovwpzpfdweacfftqptj.supabase.co
+APP_UPDATE_URL=https://uovwpzpfdweacfftqptj.supabase.co/functions/v1/app-update
+APP_RELEASE_ADMIN_TOKEN=...
+AMAP_ANDROID_KEY=...
 ```
 
-发布一个新版：
+不要把 token 或真实 Key 写进仓库文档、提交记录或日志。
+
+## 发布新版本
+
+在仓库根目录运行：
 
 ```powershell
 Set-Location "D:\codex\monitor"
 
 .\scripts\publish_android_update.ps1 `
-  -VersionCode 2 `
-  -VersionName "0.2.0" `
-  -ReleaseNotes "新增实时地图定位、后台位置更新、应用名称显示优化。"
+  -VersionCode 2008 `
+  -VersionName "0.2.5" `
+  -ReleaseNotes "修复未登录或登录失效时不会检查更新的问题；App 启动和回到前台都会检查新版本。"
 ```
 
 脚本会执行：
 
-- `flutter build apk --release`
+- `flutter build apk --release --split-per-abi`
 - 注入 `API_BASE_URL`、`APP_UPDATE_URL`、`APP_VERSION_CODE`、`APP_VERSION_NAME`、`AMAP_ANDROID_KEY`
-- 通过 `app-update` 发布接口上传 APK 到 Supabase Storage：`app-releases/android/...apk`
-- 调用 `app-update` 的 POST 管理接口写入 release 记录
-- 用旧版本号请求一次更新检查作为验证
+- 选择默认 `arm64-v8a` release APK
+- 通过 `app-update` 发布接口上传 APK 到 Supabase Storage
+- 写入 `mutual_watch.app_releases`
+- 用旧版本号请求一次更新接口做验证
 
-如果 APK 已经有公开 HTTPS 地址，可以跳过上传：
+## 复用已构建 APK
+
+如果 release APK 已经构建完成，可以跳过构建：
 
 ```powershell
 .\scripts\publish_android_update.ps1 `
-  -VersionCode 2 `
-  -VersionName "0.2.0" `
+  -VersionCode 2008 `
+  -VersionName "0.2.5" `
   -SkipBuild `
-  -ApkPath "D:\codex\monitor\mobile\build\app\outputs\flutter-apk\app-release.apk" `
-  -ApkUrl "https://example.com/mutual-watch-0.2.0.apk" `
-  -ReleaseNotes "更新说明"
+  -ReleaseNotes "修复未登录或登录失效时不会检查更新的问题；App 启动和回到前台都会检查新版本。"
 ```
+
+如果 APK 已经有外部 HTTPS 地址，可以同时传入 `-ApkUrl`。
 
 ## 验证
 
+检查旧版本是否能看到新版本：
+
 ```powershell
-curl.exe -s "https://uovwpzpfdweacfftqptj.supabase.co/functions/v1/app-update?platform=android&currentVersionCode=1"
+Invoke-RestMethod -Uri "https://uovwpzpfdweacfftqptj.supabase.co/functions/v1/app-update?platform=android&currentVersionCode=2007"
 ```
 
-如果最新发布版本号大于 `currentVersionCode`，应返回 `updateAvailable: true`。旧版 App 下次启动或手动检查更新时会弹出下载提示；Android 安装 APK 仍需要用户在系统安装界面确认。
+预期返回 `updateAvailable: true`，并包含：
+
+```json
+{
+  "versionCode": 2008,
+  "versionName": "0.2.5"
+}
+```
+
+检查当前版本不会重复提示：
+
+```powershell
+Invoke-RestMethod -Uri "https://uovwpzpfdweacfftqptj.supabase.co/functions/v1/app-update?platform=android&currentVersionCode=2008"
+```
+
+预期：
+
+```json
+{"updateAvailable":false}
+```
+
+检查 APK 下载：
+
+```powershell
+curl.exe -I -L "https://uovwpzpfdweacfftqptj.supabase.co/storage/v1/object/public/app-releases/android/mutual-watch-0.2.5-2008.apk"
+```
+
+预期返回 `HTTP/1.1 200 OK`，`Content-Type: application/vnd.android.package-archive`。
+
+## 常见问题
+
+### 设备没有弹更新框
+
+先确认设备当前安装版本。如果是 `0.2.4` 或更旧版本，旧客户端可能只有进入主界面后才检查更新。处理方式：
+
+1. 直接安装当前 APK：`https://uovwpzpfdweacfftqptj.supabase.co/storage/v1/object/public/app-releases/android/mutual-watch-0.2.5-2008.apk`
+2. 安装到 `0.2.5` 后，后续启动和回到前台都会检查更新。
+
+### 显示“暂时连接不上服务器”
+
+这通常是手机网络层错误，不一定是服务器故障。可能原因包括 DNS 解析失败、连接超时、网络不可达、VPN/私有 DNS/运营商网络对 Supabase 或 Cloudflare 访问不稳定。
+
+排查顺序：
+
+1. 用浏览器打开 API 健康检查地址：`https://uovwpzpfdweacfftqptj.supabase.co/functions/v1/api/health`
+2. 切换 Wi-Fi/蜂窝网络。
+3. 关闭或更换 VPN、私有 DNS、代理。
+4. 直接打开 APK 下载链接确认网络能访问 Supabase Storage。
