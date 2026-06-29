@@ -46,10 +46,10 @@ class AmapLocationCollector {
       ..onceLocation = false
       ..needAddress = false
       ..geoLanguage = GeoLanguage.DEFAULT
-      ..locationInterval = 15000
+      ..locationInterval = 5000
       ..locationMode = AMapLocationMode.Hight_Accuracy
-      ..distanceFilter = 10
-      ..desiredAccuracy = DesiredAccuracy.Best
+      ..distanceFilter = 3
+      ..desiredAccuracy = DesiredAccuracy.BestForNavigation
       ..pausesLocationUpdatesAutomatically = false;
 
     _plugin.setLocationOption(option);

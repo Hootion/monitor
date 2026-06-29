@@ -186,8 +186,8 @@ class TelemetryForegroundService : Service() {
             runCatching {
                 manager.requestLocationUpdates(
                     provider,
-                    LOCATION_UPLOAD_INTERVAL_MS,
-                    10f,
+                    LOCATION_UPDATE_INTERVAL_MS,
+                    3f,
                     locationListener
                 )
             }
@@ -375,6 +375,7 @@ class TelemetryForegroundService : Service() {
     }
 
     companion object {
-        private const val LOCATION_UPLOAD_INTERVAL_MS = 60_000L
+        private const val LOCATION_UPDATE_INTERVAL_MS = 15_000L
+        private const val LOCATION_UPLOAD_INTERVAL_MS = 30_000L
     }
 }

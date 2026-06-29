@@ -245,9 +245,9 @@ class MainActivity : FlutterActivity() {
 
     private fun todayUsageReport(): Map<String, Any?> {
         val sessions = appUsageSessions()
-        val total = sessions.sumOf { it["durationMs"] as Long }
+        val total = minOf(sessions.sumOf { it["durationMs"] as Long }, MAX_DAILY_USAGE_MS)
         val first = sessions.minByOrNull { it["startedAt"].toString() }?.get("startedAt") as String?
-        val longest = sessions.maxOfOrNull { it["durationMs"] as Long } ?: 0L
+        val longest = minOf(sessions.maxOfOrNull { it["durationMs"] as Long } ?: 0L, MAX_APP_USAGE_SESSION_MS)
         val date = LocalDate.now().toString()
         return mapOf(
             "date" to date,
@@ -272,6 +272,7 @@ class MainActivity : FlutterActivity() {
         while (events.hasNextEvent()) {
             events.getNextEvent(event)
             val packageName = event.packageName ?: continue
+            if (isOwnPackage(packageName)) continue
             when (event.eventType) {
                 UsageEvents.Event.MOVE_TO_FOREGROUND,
                 UsageEvents.Event.ACTIVITY_RESUMED -> {
@@ -283,7 +284,8 @@ class MainActivity : FlutterActivity() {
                     val startedAt = active.remove(packageName) ?: continue
                     val duration = event.timeStamp - startedAt
                     if (duration > 0) {
-                        sessions.add(sessionMap(packageName, startedAt, event.timeStamp, duration))
+                        sessionMap(packageName, startedAt, event.timeStamp, duration, start, end)
+                            ?.let { sessions.add(it) }
                     }
                 }
             }
@@ -291,7 +293,8 @@ class MainActivity : FlutterActivity() {
         for ((packageName, startedAt) in active) {
             val duration = end - startedAt
             if (duration > 0) {
-                sessions.add(sessionMap(packageName, startedAt, end, duration))
+                sessionMap(packageName, startedAt, end, duration, start, end)
+                    ?.let { sessions.add(it) }
             }
         }
         return sessions
@@ -299,15 +302,28 @@ class MainActivity : FlutterActivity() {
             .take(120)
     }
 
-    private fun sessionMap(packageName: String, startedAt: Long, endedAt: Long, duration: Long): Map<String, Any?> {
+    private fun sessionMap(
+        packageName: String,
+        startedAt: Long,
+        endedAt: Long,
+        duration: Long,
+        dayStart: Long,
+        dayEnd: Long
+    ): Map<String, Any?>? {
+        val boundedStart = maxOf(startedAt, dayStart)
+        val boundedEnd = minOf(endedAt, dayEnd)
+        val clockDuration = boundedEnd - boundedStart
+        val safeDuration = minOf(duration, clockDuration, MAX_APP_USAGE_SESSION_MS)
+        if (safeDuration <= 0) return null
+        val safeEndedAt = minOf(boundedEnd, boundedStart + safeDuration)
         return mapOf(
             "platform" to "android",
             "packageName" to packageName,
             "appName" to appName(packageName),
-            "clientSessionId" to "app_usage:$packageName:$startedAt",
-            "startedAt" to isoFromMillis(startedAt),
-            "endedAt" to isoFromMillis(endedAt),
-            "durationMs" to duration,
+            "clientSessionId" to "app_usage:$packageName:$boundedStart",
+            "startedAt" to isoFromMillis(boundedStart),
+            "endedAt" to isoFromMillis(safeEndedAt),
+            "durationMs" to safeDuration,
             "openCount" to 1
         )
     }
@@ -324,6 +340,7 @@ class MainActivity : FlutterActivity() {
         while (events.hasNextEvent()) {
             events.getNextEvent(event)
             val packageName = event.packageName ?: continue
+            if (isOwnPackage(packageName)) continue
             if (event.eventType == UsageEvents.Event.MOVE_TO_FOREGROUND ||
                 event.eventType == UsageEvents.Event.ACTIVITY_RESUMED
             ) {
@@ -343,6 +360,9 @@ class MainActivity : FlutterActivity() {
             .take(120)
     }
 
+    private fun isOwnPackage(packageName: String): Boolean =
+        packageName == applicationContext.packageName
+
     private fun appName(packageName: String): String {
         appNameCache[packageName]?.let { return it }
         val label = runCatching {
@@ -359,5 +379,10 @@ class MainActivity : FlutterActivity() {
         }.getOrDefault(packageName)
         appNameCache[packageName] = label
         return label
+    }
+
+    companion object {
+        private const val MAX_APP_USAGE_SESSION_MS = 4 * 60 * 60 * 1000L
+        private const val MAX_DAILY_USAGE_MS = 24 * 60 * 60 * 1000L
     }
 }

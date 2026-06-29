@@ -40,6 +40,7 @@ class ApiClient {
 
   Future<void> loadTokens() async {
     final prefs = await SharedPreferences.getInstance();
+    await prefs.reload();
     accessToken = prefs.getString('accessToken');
     refreshToken = prefs.getString('refreshToken');
   }
@@ -61,6 +62,9 @@ class ApiClient {
   }
 
   Future<bool> refreshSession() async {
+    if (refreshToken == null || refreshToken!.isEmpty) {
+      await loadTokens();
+    }
     final token = refreshToken;
     if (token == null) return false;
     final inFlight = _refreshInFlight;
@@ -86,10 +90,31 @@ class ApiClient {
       final bundle = AuthBundle.fromJson(json);
       await saveTokens(bundle);
       return true;
-    } catch (_) {
-      await clearTokens();
+    } catch (exception) {
+      final recovered = await _loadTokensIfAnotherProcessRefreshed(token);
+      if (recovered) {
+        return true;
+      }
+      if (exception is ApiException && exception.statusCode == 401) {
+        await clearTokens();
+      }
       return false;
     }
+  }
+
+  Future<bool> _loadTokensIfAnotherProcessRefreshed(String staleToken) async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.reload();
+    final latestAccessToken = prefs.getString('accessToken');
+    final latestRefreshToken = prefs.getString('refreshToken');
+    if (latestAccessToken?.isNotEmpty == true &&
+        latestRefreshToken?.isNotEmpty == true &&
+        latestRefreshToken != staleToken) {
+      accessToken = latestAccessToken;
+      refreshToken = latestRefreshToken;
+      return true;
+    }
+    return false;
   }
 
   Future<AuthBundle> register({
@@ -214,11 +239,13 @@ class ApiClient {
   }) async {
     final uri = Uri.parse('$baseUrl$path');
     final headers = <String, String>{'Content-Type': 'application/json'};
+    String? requestAccessToken;
     if (auth) {
       final token = accessToken;
       if (token == null || token.isEmpty) {
         throw const ApiException('登录已过期，请重新登录。', 401);
       }
+      requestAccessToken = token;
       headers['Authorization'] = 'Bearer $token';
     }
     final response = await _client.send(
@@ -236,6 +263,17 @@ class ApiClient {
         refreshToken != null) {
       final refreshed = await refreshSession();
       if (refreshed) {
+        return _request(
+          method,
+          path,
+          body: body,
+          auth: auth,
+          refreshOnUnauthorized: false,
+        );
+      }
+      final staleToken = requestAccessToken;
+      await loadTokens();
+      if (accessToken?.isNotEmpty == true && accessToken != staleToken) {
         return _request(
           method,
           path,

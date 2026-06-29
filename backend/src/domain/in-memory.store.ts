@@ -16,6 +16,9 @@ import {
 
 const now = () => new Date().toISOString();
 const datePart = (value: string) => value.slice(0, 10);
+const ownAndroidPackageName = "com.mutualwatch.mutual_watch";
+const maxAppUsageSessionMs = 4 * 60 * 60 * 1000;
+const maxDailyUsageMs = 24 * 60 * 60 * 1000;
 
 @Injectable()
 export class InMemoryStore {
@@ -77,7 +80,6 @@ export class InMemoryStore {
   consumeRefreshToken(tokenHash: string): User | undefined {
     const record = this.refreshTokens.get(tokenHash);
     if (!record) return undefined;
-    this.refreshTokens.delete(tokenHash);
     if (new Date(record.expiresAt).getTime() < Date.now()) return undefined;
     return this.users.get(record.userId);
   }
@@ -177,14 +179,26 @@ export class InMemoryStore {
 
     let dailyReport: DailyUsageReport | undefined;
     if (batch.dailyReport) {
-      dailyReport = { ...batch.dailyReport, id: randomUUID(), userId };
+      const screenTimeMs = safeDailyUsageDurationMs(batch.dailyReport.screenTimeMs);
+      dailyReport = {
+        ...batch.dailyReport,
+        screenTimeMs,
+        longestContinuousMs: Math.min(
+          safeAppUsageDurationMs(batch.dailyReport.longestContinuousMs),
+          screenTimeMs
+        ),
+        id: randomUUID(),
+        userId
+      };
       this.dailyReports.set(this.reportKey(userId, dailyReport.date), dailyReport);
     }
 
     let appUsageCount = 0;
     if (batch.appUsageSessions?.length) {
       const list = this.appUsage.get(userId) ?? [];
-      for (const session of batch.appUsageSessions) {
+      for (const input of batch.appUsageSessions) {
+        const session = sanitizeAppUsageSession(input);
+        if (!session) continue;
         const existingIndex = session.clientSessionId
           ? list.findIndex((item) => item.clientSessionId === session.clientSessionId)
           : -1;
@@ -244,7 +258,7 @@ export class InMemoryStore {
 
   appUsageForDate(userId: string, date: string): AppUsageSession[] {
     return (this.appUsage.get(userId) ?? [])
-      .filter((session) => datePart(session.startedAt) === date)
+      .filter((session) => datePart(session.startedAt) === date && session.packageName !== ownAndroidPackageName)
       .sort((a, b) => b.durationMs - a.durationMs);
   }
 
@@ -281,4 +295,37 @@ export class InMemoryStore {
   private reportKey(userId: string, date: string): string {
     return `${userId}:${date}`;
   }
+}
+
+function sanitizeAppUsageSession(session: AppUsageSession): AppUsageSession | undefined {
+  if (session.packageName.trim().toLowerCase() === ownAndroidPackageName) {
+    return undefined;
+  }
+  const startedAt = new Date(session.startedAt);
+  const endedAt = new Date(session.endedAt);
+  if (Number.isNaN(startedAt.getTime()) || Number.isNaN(endedAt.getTime()) || endedAt <= startedAt) {
+    return undefined;
+  }
+  const clockDuration = endedAt.getTime() - startedAt.getTime();
+  const durationMs = Math.min(
+    safeAppUsageDurationMs(session.durationMs),
+    safeAppUsageDurationMs(clockDuration)
+  );
+  if (durationMs <= 0) {
+    return undefined;
+  }
+  return {
+    ...session,
+    startedAt: startedAt.toISOString(),
+    endedAt: new Date(startedAt.getTime() + durationMs).toISOString(),
+    durationMs
+  };
+}
+
+function safeDailyUsageDurationMs(value: number): number {
+  return Math.max(0, Math.min(value, maxDailyUsageMs));
+}
+
+function safeAppUsageDurationMs(value: number): number {
+  return Math.max(0, Math.min(value, maxAppUsageSessionMs));
 }

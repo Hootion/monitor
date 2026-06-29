@@ -20,6 +20,9 @@ const sql = postgres(databaseUrl, {
 
 const encoder = new TextEncoder();
 const decoder = new TextDecoder();
+const ownAndroidPackageName = "com.mutualwatch.mutual_watch";
+const maxAppUsageSessionMs = 4 * 60 * 60 * 1000;
+const maxDailyUsageMs = 24 * 60 * 60 * 1000;
 
 class HttpError extends Error {
   constructor(
@@ -176,7 +179,7 @@ async function refresh(body: Record<string, unknown>): Promise<Response> {
         and rt.expires_at > now()
       limit 1
     `;
-    await tx`delete from mutual_watch.refresh_tokens where token_hash = ${tokenHash}`;
+    await tx`delete from mutual_watch.refresh_tokens where expires_at <= now()`;
     return users[0] as DbUser | undefined;
   });
 
@@ -347,15 +350,21 @@ async function ingestTelemetry(user: DbUser, body: Record<string, unknown>): Pro
 
     if (isObject(body.dailyReport)) {
       const input = body.dailyReport;
+      const reportDate = dateValue(input.date);
+      const screenTimeMs = safeDailyUsageDurationMs(numberValue(input.screenTimeMs));
+      const longestContinuousMs = Math.min(
+        safeAppUsageDurationMs(numberValue(input.longestContinuousMs)),
+        screenTimeMs
+      );
       [report] = await tx`
         insert into mutual_watch.daily_usage_reports (
           user_id, report_date, platform, screen_time_ms, pickup_count, first_use_at,
           longest_continuous_ms, unsupported, updated_at
         )
         values (
-          ${userId}, ${dateValue(input.date)}, ${stringValue(input.platform) || "android"},
-          ${numberValue(input.screenTimeMs)}, ${numberValue(input.pickupCount)},
-          ${nullableTimestamp(input.firstUseAt)}, ${numberValue(input.longestContinuousMs)},
+          ${userId}, ${reportDate}, ${stringValue(input.platform) || "android"},
+          ${screenTimeMs}, ${numberValue(input.pickupCount)},
+          ${nullableTimestamp(input.firstUseAt)}, ${longestContinuousMs},
           ${JSON.stringify(arrayOfStrings(input.unsupported))}::jsonb, now()
         )
         on conflict (user_id, report_date)
@@ -374,15 +383,17 @@ async function ingestTelemetry(user: DbUser, body: Record<string, unknown>): Pro
     if (Array.isArray(body.appUsageSessions)) {
       for (const item of body.appUsageSessions) {
         if (!isObject(item)) continue;
+        const session = normalizeAppUsageInput(item);
+        if (!session) continue;
         await tx`
           insert into mutual_watch.app_usage_sessions (
             user_id, package_name, app_name, client_session_id, started_at, ended_at, duration_ms, open_count, platform
           )
           values (
-            ${userId}, ${stringValue(item.packageName) || "unknown"}, ${nullableString(item.appName)},
-            ${nullableString(item.clientSessionId)},
-            ${timestampValue(item.startedAt)}, ${timestampValue(item.endedAt)}, ${numberValue(item.durationMs)},
-            ${numberOrNull(item.openCount)}, ${stringValue(item.platform) || "android"}
+            ${userId}, ${session.packageName}, ${session.appName},
+            ${session.clientSessionId},
+            ${session.startedAt}, ${session.endedAt}, ${session.durationMs},
+            ${session.openCount}, ${session.platform}
           )
           on conflict (user_id, client_session_id) where client_session_id is not null
           do update set
@@ -478,6 +489,8 @@ async function partnerAppUsage(userId: string, date: string): Promise<Response> 
     where user_id = ${partnerId}
       and started_at >= ${start}
       and started_at < ${end}
+      and package_name <> ${ownAndroidPackageName}
+      and duration_ms > 0
     order by duration_ms desc
   `;
   return json({ date, sessions: sessions.map(appUsageSession) });
@@ -562,6 +575,11 @@ async function issueTokens(user: DbUser): Promise<Record<string, unknown>> {
   await sql`
     insert into mutual_watch.refresh_tokens (token_hash, user_id, expires_at)
     values (${refresh.hash}, ${user.id}, ${refresh.expiresAt})
+  `;
+  await sql`
+    delete from mutual_watch.refresh_tokens
+    where user_id = ${user.id}
+      and expires_at <= now()
   `;
   return {
     user: publicUser(user),
@@ -649,7 +667,7 @@ async function pbkdf2(password: string, salt: Uint8Array): Promise<Uint8Array> {
 
 async function signAccessToken(userId: string): Promise<string> {
   const iat = Math.floor(Date.now() / 1000);
-  const exp = iat + numberFromEnv("ACCESS_TOKEN_TTL_SECONDS", 900);
+  const exp = iat + numberFromEnv("ACCESS_TOKEN_TTL_SECONDS", 86400);
   const header = base64urlJson({ alg: "HS256", typ: "JWT" });
   const payload = base64urlJson({ sub: userId, typ: "access", iat, exp });
   const signature = base64urlBytes(await hmacBytes(`${header}.${payload}`));
@@ -675,7 +693,7 @@ async function verifyAccessToken(token: string): Promise<{ sub: string; exp: num
 async function createRefreshToken(): Promise<{ token: string; hash: string; expiresAt: string }> {
   const random = crypto.getRandomValues(new Uint8Array(48));
   const token = base64urlBytes(random);
-  const expiresAt = new Date(Date.now() + numberFromEnv("REFRESH_TOKEN_TTL_DAYS", 30) * 24 * 60 * 60 * 1000).toISOString();
+  const expiresAt = new Date(Date.now() + numberFromEnv("REFRESH_TOKEN_TTL_DAYS", 180) * 24 * 60 * 60 * 1000).toISOString();
   return { token, hash: await hashToken(token), expiresAt };
 }
 
@@ -791,20 +809,22 @@ function deviceLocation(row: Record<string, unknown>): Record<string, unknown> {
 }
 
 function dailyUsageReport(row: Record<string, unknown>): Record<string, unknown> {
+  const screenTimeMs = safeDailyUsageDurationMs(numberValue(row.screen_time_ms));
   return {
     id: row.id,
     userId: row.user_id,
     date: dateOnly(row.report_date),
     platform: row.platform,
-    screenTimeMs: row.screen_time_ms,
+    screenTimeMs,
     pickupCount: row.pickup_count,
     firstUseAt: row.first_use_at == null ? null : iso(row.first_use_at),
-    longestContinuousMs: row.longest_continuous_ms,
+    longestContinuousMs: Math.min(safeAppUsageDurationMs(numberValue(row.longest_continuous_ms)), screenTimeMs),
     unsupported: arrayOfStrings(row.unsupported)
   };
 }
 
 function appUsageSession(row: Record<string, unknown>): Record<string, unknown> {
+  const durationMs = safeStoredAppUsageDurationMs(row);
   return {
     id: row.id,
     userId: row.user_id,
@@ -813,7 +833,7 @@ function appUsageSession(row: Record<string, unknown>): Record<string, unknown> 
     clientSessionId: row.client_session_id,
     startedAt: iso(row.started_at),
     endedAt: iso(row.ended_at),
-    durationMs: row.duration_ms,
+    durationMs,
     openCount: row.open_count,
     platform: row.platform
   };
@@ -849,6 +869,69 @@ function inviteCode(): string {
 function timestampValue(value: unknown): string {
   const text = stringValue(value);
   return text || new Date().toISOString();
+}
+
+function normalizeAppUsageInput(item: Record<string, unknown>) {
+  const packageName = stringValue(item.packageName).trim() || "unknown";
+  if (packageName.toLowerCase() === ownAndroidPackageName) {
+    return null;
+  }
+
+  const startedAt = dateFromUnknown(item.startedAt);
+  const endedAt = dateFromUnknown(item.endedAt);
+  if (!startedAt || !endedAt || endedAt.getTime() <= startedAt.getTime()) {
+    return null;
+  }
+
+  const now = Date.now();
+  const safeEnd = new Date(Math.min(endedAt.getTime(), now + 5 * 60 * 1000));
+  const clockDuration = safeEnd.getTime() - startedAt.getTime();
+  const rawDuration = numberValue(item.durationMs);
+  const durationMs = Math.min(
+    safeAppUsageDurationMs(rawDuration > 0 ? rawDuration : clockDuration),
+    safeAppUsageDurationMs(clockDuration)
+  );
+  if (durationMs <= 0) {
+    return null;
+  }
+
+  return {
+    packageName,
+    appName: nullableString(item.appName),
+    clientSessionId: nullableString(item.clientSessionId),
+    startedAt: startedAt.toISOString(),
+    endedAt: new Date(startedAt.getTime() + durationMs).toISOString(),
+    durationMs,
+    openCount: numberOrNull(item.openCount),
+    platform: stringValue(item.platform) || "android"
+  };
+}
+
+function safeStoredAppUsageDurationMs(row: Record<string, unknown>): number {
+  const startedAt = dateFromUnknown(row.started_at);
+  const endedAt = dateFromUnknown(row.ended_at);
+  const rawDuration = safeAppUsageDurationMs(numberValue(row.duration_ms));
+  if (!startedAt || !endedAt || endedAt.getTime() <= startedAt.getTime()) {
+    return rawDuration;
+  }
+  const clockDuration = endedAt.getTime() - startedAt.getTime();
+  return Math.min(rawDuration, safeAppUsageDurationMs(clockDuration));
+}
+
+function safeDailyUsageDurationMs(value: number): number {
+  return Math.max(0, Math.min(value, maxDailyUsageMs));
+}
+
+function safeAppUsageDurationMs(value: number): number {
+  return Math.max(0, Math.min(value, maxAppUsageSessionMs));
+}
+
+function dateFromUnknown(value: unknown): Date | undefined {
+  if (value instanceof Date) return value;
+  const text = stringValue(value);
+  if (!text) return undefined;
+  const date = new Date(text);
+  return Number.isNaN(date.getTime()) ? undefined : date;
 }
 
 function nullableTimestamp(value: unknown): string | null {

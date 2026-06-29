@@ -19,8 +19,8 @@ const decodeBase64url = (input: string) => {
 @Injectable()
 export class TokenService {
   private readonly secret = process.env.JWT_SECRET ?? "dev-only-change-me";
-  private readonly accessTtlSeconds = Number(process.env.ACCESS_TOKEN_TTL_SECONDS ?? 900);
-  private readonly refreshTtlDays = Number(process.env.REFRESH_TOKEN_TTL_DAYS ?? 30);
+  private readonly accessTtlSeconds = Number(process.env.ACCESS_TOKEN_TTL_SECONDS ?? 86400);
+  private readonly refreshTtlDays = Number(process.env.REFRESH_TOKEN_TTL_DAYS ?? 180);
 
   signAccessToken(userId: string): string {
     const iat = Math.floor(Date.now() / 1000);
@@ -66,4 +66,3 @@ export class TokenService {
     return base64url(createHmac("sha256", this.secret).update(value).digest());
   }
 }
-

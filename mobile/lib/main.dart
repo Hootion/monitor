@@ -5,6 +5,8 @@ import 'dart:io' show Platform;
 
 import 'package:amap_flutter_base/amap_flutter_base.dart';
 import 'package:amap_flutter_map/amap_flutter_map.dart';
+import 'package:flutter/foundation.dart' show Factory;
+import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
@@ -18,6 +20,12 @@ void main() {
 const _pageMaxWidth = 980.0;
 const _cardRadius = 8.0;
 const _wideBreakpoint = 760.0;
+const _ownAndroidPackageName = 'com.mutualwatch.mutual_watch';
+final _maxAppUsageSessionMs = const Duration(hours: 4).inMilliseconds;
+final _maxDailyUsageMs = const Duration(hours: 24).inMilliseconds;
+final Set<Factory<OneSequenceGestureRecognizer>> _mapGestureRecognizers = {
+  Factory<OneSequenceGestureRecognizer>(() => EagerGestureRecognizer()),
+};
 
 class MutualWatchApp extends StatefulWidget {
   const MutualWatchApp({super.key});
@@ -495,10 +503,9 @@ class _HomeShellState extends State<HomeShell> {
 
   static const destinations = [
     _DestinationSpec(Icons.dashboard_rounded, '总览'),
-    _DestinationSpec(Icons.qr_code_2_rounded, '绑定'),
     _DestinationSpec(Icons.apps_rounded, '应用'),
     _DestinationSpec(Icons.timeline_rounded, '记录'),
-    _DestinationSpec(Icons.privacy_tip_rounded, '隐私'),
+    _DestinationSpec(Icons.person_rounded, '我的'),
   ];
 
   @override
@@ -523,11 +530,10 @@ class _HomeShellState extends State<HomeShell> {
   Widget build(BuildContext context) {
     final state = AppScope.of(context);
     final pages = [
-      DashboardTab(onOpenPairing: () => _selectIndex(1)),
-      const PairingTab(),
+      DashboardTab(onOpenPairing: () => _selectIndex(3)),
       const AppUsageTab(),
       const EventsTab(),
-      const PrivacyTab(),
+      const MyTab(),
     ];
 
     return LayoutBuilder(
@@ -828,7 +834,7 @@ class DashboardTab extends StatelessWidget {
             const InfoCard(
               icon: Icons.pause_circle_rounded,
               title: '你已暂停共享',
-              subtitle: '对方暂时看不到你的新状态，可在隐私页恢复。',
+              subtitle: '对方暂时看不到你的新状态，可在“我的-设置”里恢复。',
               tone: InfoTone.warning,
             ),
             const SizedBox(height: 12),
@@ -1476,6 +1482,9 @@ class DashboardOverviewPanel extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final screenTime = safeDailyUsageDurationMs(report?.screenTimeMs ?? 0);
+    final longestContinuous = math.min(
+        screenTime, safeAppUsageDurationMs(report?.longestContinuousMs ?? 0));
     final subtitle = report == null
         ? '等待下一次同步'
         : '来自 ${platformLabel(report!.platform)} · 今日应用进入前台会话';
@@ -1483,7 +1492,7 @@ class DashboardOverviewPanel extends StatelessWidget {
       _DashboardMetric(
         icon: Icons.smartphone_rounded,
         label: '屏幕时间',
-        value: formatDuration(report?.screenTimeMs ?? 0),
+        value: formatDuration(screenTime),
         helper: '今日累计',
       ),
       _DashboardMetric(
@@ -1501,7 +1510,7 @@ class DashboardOverviewPanel extends StatelessWidget {
       _DashboardMetric(
         icon: Icons.timer_rounded,
         label: '最长连续',
-        value: formatDuration(report?.longestContinuousMs ?? 0),
+        value: formatDuration(longestContinuous),
         helper: '单次最长前台时长',
       ),
     ];
@@ -1747,7 +1756,7 @@ class _RealtimeLocationPanelState extends State<RealtimeLocationPanel> {
       return;
     }
     await controller.moveCamera(
-      CameraUpdate.newLatLngZoom(point, 16),
+      CameraUpdate.newLatLngZoom(point, 17.5),
       animated: animated,
       duration: animated ? 260 : 0,
     );
@@ -1795,9 +1804,11 @@ class _AmapLocationPreview extends StatelessWidget {
                 hasShow: true,
                 hasAgree: true,
               ),
-              initialCameraPosition: CameraPosition(target: point, zoom: 16),
+              initialCameraPosition: CameraPosition(target: point, zoom: 17.5),
+              gestureRecognizers: _mapGestureRecognizers,
               markers: {marker},
               polygons: polygons,
+              minMaxZoomPreference: const MinMaxZoomPreference(3, 20),
               scaleEnabled: true,
               compassEnabled: true,
               zoomGesturesEnabled: true,
@@ -2170,14 +2181,27 @@ class _StatusLineData {
   final bool warning;
 }
 
-class PairingTab extends StatefulWidget {
+class PairingTab extends StatelessWidget {
   const PairingTab({super.key});
 
   @override
-  State<PairingTab> createState() => _PairingTabState();
+  Widget build(BuildContext context) {
+    return const AdaptiveListPage(
+      children: [
+        PairingSection(),
+      ],
+    );
+  }
 }
 
-class _PairingTabState extends State<PairingTab> {
+class PairingSection extends StatefulWidget {
+  const PairingSection({super.key});
+
+  @override
+  State<PairingSection> createState() => _PairingSectionState();
+}
+
+class _PairingSectionState extends State<PairingSection> {
   final codeController = TextEditingController();
   String? localError;
 
@@ -2194,10 +2218,13 @@ class _PairingTabState extends State<PairingTab> {
     final error = localError ?? state.error;
     final hasPartner = state.partner != null;
 
-    return AdaptiveListPage(
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
-        if (error != null)
+        if (error != null) ...[
           ErrorBanner(message: error, onDismiss: () => _dismissError(state)),
+          const SizedBox(height: 12),
+        ],
         if (hasPartner)
           BoundRelationshipPanel(
             partner: state.partner!,
@@ -2362,6 +2389,137 @@ class _PairingTabState extends State<PairingTab> {
     );
     state.clearError();
     setState(() => localError = null);
+  }
+}
+
+class MyTab extends StatefulWidget {
+  const MyTab({super.key});
+
+  @override
+  State<MyTab> createState() => _MyTabState();
+}
+
+class _MyTabState extends State<MyTab> {
+  bool showingSettings = false;
+
+  @override
+  Widget build(BuildContext context) {
+    if (showingSettings) {
+      return SettingsContent(
+        onBack: () => setState(() => showingSettings = false),
+      );
+    }
+
+    final state = AppScope.of(context);
+    final user = state.user!;
+
+    return AdaptiveListPage(
+      children: [
+        if (state.error != null) ...[
+          ErrorBanner(message: state.error!, onDismiss: state.clearError),
+          const SizedBox(height: 12),
+        ],
+        MyProfilePanel(
+          user: user,
+          partner: state.overview?.partner ?? state.partner,
+          lastSyncedAt: state.lastSyncedAt,
+          lastRefreshedAt: state.lastRefreshedAt,
+        ),
+        const SizedBox(height: 12),
+        MySettingsEntryPanel(
+          onOpenSettings: () => setState(() => showingSettings = true),
+        ),
+        const SizedBox(height: 12),
+        const PairingSection(),
+      ],
+    );
+  }
+}
+
+class MyProfilePanel extends StatelessWidget {
+  const MyProfilePanel({
+    required this.user,
+    required this.partner,
+    required this.lastSyncedAt,
+    required this.lastRefreshedAt,
+    super.key,
+  });
+
+  final PublicUser user;
+  final PublicUser? partner;
+  final DateTime? lastSyncedAt;
+  final DateTime? lastRefreshedAt;
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = Theme.of(context).colorScheme;
+    final latest = latestDate(lastSyncedAt, lastRefreshedAt);
+    return SurfacePanel(
+      padding: const EdgeInsets.all(16),
+      child: Row(
+        children: [
+          CircleAvatar(
+            radius: 25,
+            backgroundColor: colors.primaryContainer,
+            foregroundColor: colors.onPrimaryContainer,
+            child: Text(appInitial(user.displayName)),
+          ),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  user.displayName,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: Theme.of(context)
+                      .textTheme
+                      .titleMedium
+                      ?.copyWith(fontWeight: FontWeight.w800),
+                ),
+                const SizedBox(height: 2),
+                Text(
+                  partner == null ? '未绑定对象' : '已绑定 ${partner!.displayName}',
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                        color: colors.onSurfaceVariant,
+                      ),
+                ),
+              ],
+            ),
+          ),
+          StatusPill(
+            icon: latest == null
+                ? Icons.cloud_off_rounded
+                : Icons.cloud_done_rounded,
+            label: latest == null ? '未同步' : formatRelativeDate(latest),
+            emphasize: latest != null,
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class MySettingsEntryPanel extends StatelessWidget {
+  const MySettingsEntryPanel({required this.onOpenSettings, super.key});
+
+  final VoidCallback onOpenSettings;
+
+  @override
+  Widget build(BuildContext context) {
+    return SurfacePanel(
+      padding: EdgeInsets.zero,
+      child: ListTile(
+        leading: const Icon(Icons.settings_rounded),
+        title: const Text('设置'),
+        subtitle: const Text('隐私、权限、数据范围和账号操作'),
+        trailing: const Icon(Icons.chevron_right_rounded),
+        onTap: onOpenSettings,
+      ),
+    );
   }
 }
 
@@ -2983,6 +3141,15 @@ class PrivacyTab extends StatelessWidget {
   const PrivacyTab({super.key});
 
   @override
+  Widget build(BuildContext context) => const SettingsContent();
+}
+
+class SettingsContent extends StatelessWidget {
+  const SettingsContent({this.onBack, super.key});
+
+  final VoidCallback? onBack;
+
+  @override
   Widget build(BuildContext context) {
     final state = AppScope.of(context);
     final user = state.user!;
@@ -2993,6 +3160,18 @@ class PrivacyTab extends StatelessWidget {
 
     return AdaptiveListPage(
       children: [
+        if (onBack != null) ...[
+          SectionHeader(
+            title: '设置',
+            subtitle: '隐私、权限和账号操作',
+            trailing: IconButton.filledTonal(
+              tooltip: '返回我的',
+              onPressed: onBack,
+              icon: const Icon(Icons.arrow_back_rounded),
+            ),
+          ),
+          const SizedBox(height: 12),
+        ],
         if (state.error != null) ErrorBanner(message: state.error!),
         PrivacyAccountPanel(
           user: user,
@@ -4314,7 +4493,7 @@ List<DashboardInsight> buildDashboardInsights({
     );
   }
 
-  final screenTime = report?.screenTimeMs ?? 0;
+  final screenTime = safeDailyUsageDurationMs(report?.screenTimeMs ?? 0);
   if (screenTime >= const Duration(hours: 4).inMilliseconds) {
     insights.add(
       DashboardInsight(
@@ -4526,7 +4705,7 @@ class _MutableAppUsageSummary {
         appName = session.appName,
         startedAt = session.startedAt,
         endedAt = session.endedAt,
-        durationMs = math.max(0, session.durationMs),
+        durationMs = safeAppUsageSessionDurationMs(session),
         openCount = session.openCount ?? 1,
         platform = session.platform;
 
@@ -4543,7 +4722,7 @@ class _MutableAppUsageSummary {
     appName ??= session.appName;
     startedAt = earlierIso(startedAt, session.startedAt);
     endedAt = laterIso(endedAt, session.endedAt);
-    durationMs += math.max(0, session.durationMs);
+    durationMs += safeAppUsageSessionDurationMs(session);
     openCount += session.openCount ?? 1;
     sessionCount += 1;
     platform = platform.isEmpty ? session.platform : platform;
@@ -4564,6 +4743,9 @@ class _MutableAppUsageSummary {
 List<AppUsageSummary> summarizeAppUsage(List<AppUsageSession> sessions) {
   final summaries = <String, _MutableAppUsageSummary>{};
   for (final session in sessions) {
+    if (!shouldShowAppUsageSession(session)) {
+      continue;
+    }
     summaries.update(
       session.packageName,
       (summary) => summary..add(session),
@@ -4571,6 +4753,31 @@ List<AppUsageSummary> summarizeAppUsage(List<AppUsageSession> sessions) {
     );
   }
   return summaries.values.map((summary) => summary.toSummary()).toList();
+}
+
+bool shouldShowAppUsageSession(AppUsageSession session) {
+  return session.packageName.trim().toLowerCase() != _ownAndroidPackageName &&
+      safeAppUsageSessionDurationMs(session) > 0;
+}
+
+int safeDailyUsageDurationMs(int durationMs) {
+  return math.max(0, math.min(durationMs, _maxDailyUsageMs));
+}
+
+int safeAppUsageDurationMs(int durationMs) {
+  return math.max(0, math.min(durationMs, _maxAppUsageSessionMs));
+}
+
+int safeAppUsageSessionDurationMs(AppUsageSession session) {
+  final rawDuration = safeAppUsageDurationMs(session.durationMs);
+  final startedAt = DateTime.tryParse(session.startedAt);
+  final endedAt = DateTime.tryParse(session.endedAt);
+  if (startedAt == null || endedAt == null || !endedAt.isAfter(startedAt)) {
+    return rawDuration;
+  }
+  final clockDuration =
+      math.max(0, endedAt.difference(startedAt).inMilliseconds);
+  return math.min(rawDuration, safeAppUsageDurationMs(clockDuration));
 }
 
 List<UsageInsightItem> buildUsageInsightItems(List<AppUsageSummary> usage) {
@@ -5367,8 +5574,8 @@ String locationDetailLabel(DeviceLocation? location) {
     final accuracy = location.accuracyMeters == null
         ? ''
         : ' · ±${location.accuracyMeters!.round()} 米';
-    return '${location.latitude!.toStringAsFixed(5)}, '
-        '${location.longitude!.toStringAsFixed(5)} · '
+    return '${location.latitude!.toStringAsFixed(6)}, '
+        '${location.longitude!.toStringAsFixed(6)} · '
         '${formatRelativeTime(location.capturedAt)}$accuracy';
   }
   return switch (status) {

@@ -106,7 +106,7 @@ void main() {
         longitude: 121.473701,
         accuracyMeters: 18,
       )),
-      contains('31.23042, 121.47370'),
+      contains('31.230416, 121.473701'),
     );
     expect(bluetoothLabel('unauthorized'), '未授权');
     expect(bluetoothLabel('off'), '已关闭');
@@ -150,6 +150,32 @@ void main() {
     expect(chat.sessionCount, 2);
     expect(chat.startedAt, '2026-06-25T07:30:00.000Z');
     expect(chat.endedAt, '2026-06-25T08:20:00.000Z');
+  });
+
+  test('summarizeAppUsage hides Mutual Watch self usage', () {
+    final summaries = summarizeAppUsage(const [
+      AppUsageSession(
+        packageName: 'com.mutualwatch.mutual_watch',
+        appName: 'Mutual Watch',
+        startedAt: '2026-06-25T08:00:00.000Z',
+        endedAt: '2026-06-25T12:00:00.000Z',
+        durationMs: 14400000,
+        openCount: 1,
+        platform: 'android',
+      ),
+      AppUsageSession(
+        packageName: 'com.chat',
+        appName: 'Chat',
+        startedAt: '2026-06-25T08:00:00.000Z',
+        endedAt: '2026-06-25T08:10:00.000Z',
+        durationMs: 600000,
+        openCount: 1,
+        platform: 'android',
+      ),
+    ]);
+
+    expect(summaries, hasLength(1));
+    expect(summaries.single.packageName, 'com.chat');
   });
 
   test('appUsageMatchesQuery searches app names and package names', () {
@@ -553,7 +579,7 @@ void main() {
     expect(find.text('生成邀请码'), findsOneWidget);
     expect(find.text('双向同意 · 范围可控 · 可随时解绑'), findsOneWidget);
 
-    await tester.tap(find.text('绑定'));
+    await tester.tap(find.text('我的'));
     await tester.pumpAndSettle();
 
     expect(find.text('当前绑定'), findsOneWidget);
@@ -586,7 +612,7 @@ void main() {
       ),
     );
 
-    await tester.tap(find.text('绑定'));
+    await tester.tap(find.text('我的'));
     await tester.pump(const Duration(milliseconds: 300));
 
     expect(find.text('绑定关系'), findsOneWidget);
@@ -662,8 +688,12 @@ void main() {
 
     expect(find.byType(NavigationRail), findsOneWidget);
 
-    await tester.tap(find.text('隐私'));
+    await tester.tap(find.text('我的'));
     await tester.pump(const Duration(milliseconds: 300));
+    await tester.tap(find.text('设置'));
+    await tester.pump(const Duration(milliseconds: 300));
+    await tester.drag(find.byType(ListView), const Offset(0, -760));
+    await tester.pump();
 
     expect(find.text('数据范围'), findsOneWidget);
   });
@@ -755,7 +785,7 @@ void main() {
       ),
     );
 
-    for (final label in ['总览', '绑定', '应用', '记录', '隐私']) {
+    for (final label in ['总览', '应用', '记录', '我的']) {
       await tester.tap(
         find.descendant(
           of: find.byType(NavigationBar),
@@ -843,7 +873,7 @@ void main() {
     );
 
     expect(find.text('你已暂停共享'), findsOneWidget);
-    expect(find.text('对方暂时看不到你的新状态，可在隐私页恢复。'), findsOneWidget);
+    expect(find.text('对方暂时看不到你的新状态，可在“我的-设置”里恢复。'), findsOneWidget);
   });
 
   testWidgets('Dashboard prompts when usage access is missing',
@@ -1133,16 +1163,19 @@ void main() {
       ),
     );
 
-    await tester.tap(find.text('隐私'));
+    await tester.tap(find.text('我的'));
+    await tester.pump(const Duration(milliseconds: 300));
+    await tester.tap(find.text('设置'));
     await tester.pump(const Duration(milliseconds: 300));
 
+    expect(find.text('设置'), findsWidgets);
     expect(find.text('隐私状态'), findsOneWidget);
     expect(find.text('权限与可用性'), findsOneWidget);
     expect(find.byTooltip('应用设置'), findsOneWidget);
     expect(find.text('需要授权'), findsWidgets);
     expect(find.text('蓝牙权限'), findsOneWidget);
     expect(find.text('位置与网络名'), findsOneWidget);
-    await tester.drag(find.byType(ListView), const Offset(0, -360));
+    await tester.drag(find.byType(ListView), const Offset(0, -760));
     await tester.pump();
 
     expect(find.text('数据范围'), findsOneWidget);
@@ -1190,9 +1223,12 @@ void main() {
       ),
     );
 
-    await tester.tap(find.text('隐私'));
+    await tester.tap(find.text('我的'));
+    await tester.pump(const Duration(milliseconds: 300));
+    await tester.tap(find.text('设置'));
     await tester.pump(const Duration(milliseconds: 300));
 
+    expect(find.text('设置'), findsWidgets);
     expect(find.text('隐私状态'), findsOneWidget);
     expect(find.text('权限与可用性'), findsOneWidget);
     expect(find.text('iOS 系统范围'), findsOneWidget);

@@ -55,6 +55,9 @@ class AppState extends ChangeNotifier {
     loading = true;
     notifyListeners();
     await api.loadTokens();
+    if (api.accessToken == null && api.refreshToken != null) {
+      await api.refreshSession();
+    }
     if (api.accessToken != null) {
       try {
         user = await api.me();
@@ -377,7 +380,7 @@ class AppState extends ChangeNotifier {
     final previous = _lastForegroundLocationSentAt;
     if (_foregroundLocationInFlight ||
         (previous != null &&
-            now.difference(previous) < const Duration(seconds: 12))) {
+            now.difference(previous) < const Duration(seconds: 5))) {
       return;
     }
     _foregroundLocationInFlight = true;
