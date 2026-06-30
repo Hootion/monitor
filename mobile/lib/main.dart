@@ -21,6 +21,14 @@ const _pageMaxWidth = 980.0;
 const _cardRadius = 8.0;
 const _wideBreakpoint = 760.0;
 const _ownAndroidPackageName = 'com.mutualwatch.mutual_watch';
+const _loveRose = Color(0xFFE85D75);
+const _loveCoral = Color(0xFFFF8F8F);
+const _loveMint = Color(0xFF5EBF9A);
+const _loveSage = Color(0xFFE7F5EC);
+const _loveIvory = Color(0xFFFFFAF7);
+const _loveBlush = Color(0xFFFFF1F3);
+const _loveInk = Color(0xFF2E292A);
+const _loveOutline = Color(0xFFFFD7D0);
 final _maxAppUsageSessionMs = const Duration(hours: 4).inMilliseconds;
 final _maxDailyUsageMs = const Duration(hours: 24).inMilliseconds;
 final Set<Factory<OneSequenceGestureRecognizer>> _mapGestureRecognizers = {
@@ -173,11 +181,32 @@ Future<void> showUpdateDialog(
 
 ThemeData _buildTheme(Brightness brightness) {
   final isDark = brightness == Brightness.dark;
-  final scheme = ColorScheme.fromSeed(
-    seedColor: const Color(0xFF0F8A8A),
+  final baseScheme = ColorScheme.fromSeed(
+    seedColor: _loveRose,
     brightness: brightness,
   );
-  final background = isDark ? const Color(0xFF111418) : const Color(0xFFF6F7F2);
+  final scheme = baseScheme.copyWith(
+    primary: isDark ? const Color(0xFFFFA8B6) : _loveRose,
+    onPrimary: isDark ? const Color(0xFF48151F) : Colors.white,
+    primaryContainer:
+        isDark ? const Color(0xFF6A2430) : const Color(0xFFFFE1E7),
+    onPrimaryContainer:
+        isDark ? const Color(0xFFFFD8DF) : const Color(0xFF7B2636),
+    secondary: isDark ? const Color(0xFF91DDBD) : _loveMint,
+    secondaryContainer: isDark ? const Color(0xFF214E3D) : _loveSage,
+    onSecondaryContainer:
+        isDark ? const Color(0xFFD4F8E5) : const Color(0xFF174934),
+    tertiary: isDark ? const Color(0xFFFFCA8A) : _loveCoral,
+    tertiaryContainer:
+        isDark ? const Color(0xFF5D3B15) : const Color(0xFFFFECD9),
+    onTertiaryContainer:
+        isDark ? const Color(0xFFFFE1B5) : const Color(0xFF5E3510),
+    surface: isDark ? const Color(0xFF171315) : Colors.white,
+    onSurface: isDark ? const Color(0xFFFFF4F5) : _loveInk,
+    surfaceContainerHighest: isDark ? const Color(0xFF272023) : _loveBlush,
+    outlineVariant: isDark ? const Color(0xFF534247) : _loveOutline,
+  );
+  final background = isDark ? const Color(0xFF121013) : _loveIvory;
 
   return ThemeData(
     useMaterial3: true,
@@ -198,14 +227,15 @@ ThemeData _buildTheme(Brightness brightness) {
     ),
     inputDecorationTheme: InputDecorationTheme(
       filled: true,
-      fillColor: scheme.surface,
+      fillColor: isDark ? scheme.surfaceContainerHighest : Colors.white,
       border: OutlineInputBorder(
         borderRadius: BorderRadius.circular(_cardRadius),
         borderSide: BorderSide(color: scheme.outlineVariant),
       ),
       enabledBorder: OutlineInputBorder(
         borderRadius: BorderRadius.circular(_cardRadius),
-        borderSide: BorderSide(color: scheme.outlineVariant),
+        borderSide:
+            BorderSide(color: scheme.outlineVariant.withValues(alpha: 0.86)),
       ),
       focusedBorder: OutlineInputBorder(
         borderRadius: BorderRadius.circular(_cardRadius),
@@ -215,6 +245,8 @@ ThemeData _buildTheme(Brightness brightness) {
     filledButtonTheme: FilledButtonThemeData(
       style: FilledButton.styleFrom(
         minimumSize: const Size.fromHeight(48),
+        backgroundColor: scheme.primary,
+        foregroundColor: scheme.onPrimary,
         shape: RoundedRectangleBorder(
             borderRadius: BorderRadius.circular(_cardRadius)),
       ),
@@ -222,12 +254,43 @@ ThemeData _buildTheme(Brightness brightness) {
     outlinedButtonTheme: OutlinedButtonThemeData(
       style: OutlinedButton.styleFrom(
         minimumSize: const Size.fromHeight(48),
+        foregroundColor: scheme.primary,
+        side: BorderSide(color: scheme.outlineVariant),
         shape: RoundedRectangleBorder(
             borderRadius: BorderRadius.circular(_cardRadius)),
       ),
     ),
+    iconButtonTheme: IconButtonThemeData(
+      style: IconButton.styleFrom(
+        foregroundColor: scheme.primary,
+        backgroundColor: scheme.primaryContainer.withValues(alpha: 0.72),
+        disabledForegroundColor: scheme.onSurface.withValues(alpha: 0.36),
+      ),
+    ),
+    navigationBarTheme: NavigationBarThemeData(
+      height: 72,
+      elevation: 0,
+      backgroundColor: Colors.transparent,
+      indicatorColor: scheme.primaryContainer,
+      labelTextStyle: WidgetStateProperty.resolveWith((states) {
+        final selected = states.contains(WidgetState.selected);
+        return TextStyle(
+          color: selected ? scheme.primary : scheme.onSurfaceVariant,
+          fontSize: 12,
+          fontWeight: selected ? FontWeight.w800 : FontWeight.w600,
+        );
+      }),
+      iconTheme: WidgetStateProperty.resolveWith((states) {
+        final selected = states.contains(WidgetState.selected);
+        return IconThemeData(
+          color: selected ? scheme.primary : scheme.onSurfaceVariant,
+          size: 25,
+        );
+      }),
+    ),
     textButtonTheme: TextButtonThemeData(
       style: TextButton.styleFrom(
+        foregroundColor: scheme.primary,
         shape: RoundedRectangleBorder(
             borderRadius: BorderRadius.circular(_cardRadius)),
       ),
@@ -687,17 +750,43 @@ class _HomeShellState extends State<HomeShell> {
           ),
           bottomNavigationBar: isWide
               ? null
-              : NavigationBar(
-                  selectedIndex: index,
-                  onDestinationSelected: _selectIndex,
-                  destinations: [
-                    for (final destination in destinations)
-                      NavigationDestination(
-                        icon: Icon(destination.icon),
-                        selectedIcon: Icon(destination.icon),
-                        label: destination.label,
+              : SafeArea(
+                  top: false,
+                  child: Container(
+                    margin: const EdgeInsets.fromLTRB(14, 0, 14, 10),
+                    decoration: BoxDecoration(
+                      color: Theme.of(context).colorScheme.surface,
+                      borderRadius: BorderRadius.circular(28),
+                      border: Border.all(
+                        color: Theme.of(context)
+                            .colorScheme
+                            .outlineVariant
+                            .withValues(alpha: 0.72),
                       ),
-                  ],
+                      boxShadow: Theme.of(context).brightness == Brightness.dark
+                          ? null
+                          : [
+                              BoxShadow(
+                                color: _loveRose.withValues(alpha: 0.08),
+                                blurRadius: 26,
+                                offset: const Offset(0, 10),
+                              ),
+                            ],
+                    ),
+                    clipBehavior: Clip.antiAlias,
+                    child: NavigationBar(
+                      selectedIndex: index,
+                      onDestinationSelected: _selectIndex,
+                      destinations: [
+                        for (final destination in destinations)
+                          NavigationDestination(
+                            icon: Icon(destination.icon),
+                            selectedIcon: Icon(destination.icon),
+                            label: destination.label,
+                          ),
+                      ],
+                    ),
+                  ),
                 ),
         );
       },
@@ -923,7 +1012,7 @@ class DashboardTab extends StatelessWidget {
             ),
             const SizedBox(height: 12),
           ],
-          OverviewHeroCard(
+          LoveOverviewHeroCard(
             partner: state.partner!,
             snapshot: snapshot,
             report: report,
@@ -1133,6 +1222,220 @@ class _BindingGuideStep {
   final IconData icon;
   final String title;
   final String subtitle;
+}
+
+class LoveOverviewHeroCard extends StatelessWidget {
+  const LoveOverviewHeroCard({
+    required this.partner,
+    required this.sharingPaused,
+    this.snapshot,
+    this.report,
+    super.key,
+  });
+
+  final PublicUser partner;
+  final bool sharingPaused;
+  final DeviceSnapshot? snapshot;
+  final DailyUsageReport? report;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final colors = theme.colorScheme;
+    final battery = snapshot?.batteryPercent;
+    final isCharging = snapshot?.batteryCharging == true;
+    final platform = snapshot?.platform ?? report?.platform ?? 'unknown';
+
+    return SurfacePanel(
+      padding: EdgeInsets.zero,
+      child: LayoutBuilder(
+        builder: (context, constraints) {
+          final compact = constraints.maxWidth < 560;
+          final avatarSize = compact ? 64.0 : 72.0;
+          final summary = Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                crossAxisAlignment: CrossAxisAlignment.center,
+                children: [
+                  Stack(
+                    clipBehavior: Clip.none,
+                    children: [
+                      CircleAvatar(
+                        radius: avatarSize / 2,
+                        backgroundColor: colors.primaryContainer,
+                        foregroundColor: colors.primary,
+                        child: Text(
+                          appInitial(partner.displayName),
+                          style: theme.textTheme.headlineSmall?.copyWith(
+                            color: colors.primary,
+                            fontWeight: FontWeight.w900,
+                          ),
+                        ),
+                      ),
+                      Positioned(
+                        right: -2,
+                        bottom: -2,
+                        child: Container(
+                          width: 26,
+                          height: 26,
+                          decoration: BoxDecoration(
+                            color: colors.surface,
+                            shape: BoxShape.circle,
+                            border: Border.all(
+                              color: colors.outlineVariant,
+                              width: 2,
+                            ),
+                          ),
+                          child: Icon(
+                            Icons.favorite_rounded,
+                            size: 15,
+                            color: colors.primary,
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(width: 14),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          partner.displayName,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: theme.textTheme.headlineSmall?.copyWith(
+                            color: colors.onSurface,
+                            fontWeight: FontWeight.w900,
+                          ),
+                        ),
+                        const SizedBox(height: 5),
+                        Text(
+                          snapshot?.model ??
+                              (sharingPaused ? '对方已暂停共享' : '等待设备同步'),
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: theme.textTheme.bodyMedium
+                              ?.copyWith(color: colors.onSurfaceVariant),
+                        ),
+                      ],
+                    ),
+                  ),
+                  if (!compact) ...[
+                    const SizedBox(width: 14),
+                    Container(
+                      width: 72,
+                      height: 72,
+                      decoration: BoxDecoration(
+                        color: colors.primaryContainer.withValues(alpha: 0.52),
+                        shape: BoxShape.circle,
+                        border: Border.all(
+                          color: colors.primary.withValues(alpha: 0.16),
+                        ),
+                      ),
+                      child: Icon(
+                        Icons.link_rounded,
+                        size: 34,
+                        color: colors.primary,
+                      ),
+                    ),
+                  ],
+                ],
+              ),
+              const SizedBox(height: 16),
+              Wrap(
+                spacing: 8,
+                runSpacing: 8,
+                children: [
+                  StatusPill(
+                    icon: sharingPaused
+                        ? Icons.pause_circle_rounded
+                        : Icons.check_circle_rounded,
+                    label: sharingPaused ? '对方已暂停' : '手机在线',
+                    emphasize: !sharingPaused,
+                  ),
+                  StatusPill(
+                    icon: platformIcon(platform),
+                    label: platformLabel(platform),
+                  ),
+                  if (battery != null)
+                    StatusPill(
+                      icon: isCharging
+                          ? Icons.battery_charging_full_rounded
+                          : Icons.battery_5_bar_rounded,
+                      label: '$battery%',
+                    ),
+                  if (snapshot?.capturedAt != null)
+                    StatusPill(
+                      icon: Icons.schedule_rounded,
+                      label: formatRelativeTime(snapshot!.capturedAt),
+                    ),
+                ],
+              ),
+            ],
+          );
+          final batteryPanel = BatteryPanel(
+            percent: battery,
+            charging: isCharging,
+            network: snapshot?.networkType,
+          );
+
+          return Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              Container(
+                padding: const EdgeInsets.all(18),
+                color: colors.primaryContainer.withValues(
+                  alpha: Theme.of(context).brightness == Brightness.dark
+                      ? 0.12
+                      : 0.22,
+                ),
+                child: compact
+                    ? Column(
+                        crossAxisAlignment: CrossAxisAlignment.stretch,
+                        children: [
+                          summary,
+                          const SizedBox(height: 16),
+                          batteryPanel,
+                        ],
+                      )
+                    : Row(
+                        children: [
+                          Expanded(child: summary),
+                          const SizedBox(width: 18),
+                          SizedBox(width: 220, child: batteryPanel),
+                        ],
+                      ),
+              ),
+              Padding(
+                padding: const EdgeInsets.fromLTRB(18, 14, 18, 18),
+                child: Wrap(
+                  spacing: 8,
+                  runSpacing: 8,
+                  children: const [
+                    StatusPill(
+                      icon: Icons.favorite_rounded,
+                      label: '双向同意',
+                      emphasize: true,
+                    ),
+                    StatusPill(
+                      icon: Icons.pause_circle_rounded,
+                      label: '可随时暂停',
+                    ),
+                    StatusPill(
+                      icon: Icons.lock_rounded,
+                      label: '不看隐私内容',
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          );
+        },
+      ),
+    );
+  }
 }
 
 class OverviewHeroCard extends StatelessWidget {
@@ -1345,8 +1648,8 @@ class SummaryMetricCell extends StatelessWidget {
           width: 36,
           height: 36,
           decoration: BoxDecoration(
-            color: accent.withValues(alpha: 0.13),
-            borderRadius: BorderRadius.circular(_cardRadius),
+            color: accent.withValues(alpha: 0.14),
+            shape: BoxShape.circle,
           ),
           child: Icon(item.icon, color: accent, size: 20),
         ),
@@ -1497,8 +1800,11 @@ class BatteryPanel extends StatelessWidget {
     return Container(
       padding: const EdgeInsets.all(14),
       decoration: BoxDecoration(
-        color: colors.surfaceContainerHighest.withValues(alpha: 0.68),
+        color: colors.surface.withValues(alpha: 0.78),
         borderRadius: BorderRadius.circular(_cardRadius),
+        border: Border.all(
+          color: colors.outlineVariant.withValues(alpha: 0.68),
+        ),
       ),
       child: Row(
         children: [
@@ -1510,7 +1816,7 @@ class BatteryPanel extends StatelessWidget {
                 CircularProgressIndicator(
                   value: value,
                   strokeWidth: 7,
-                  backgroundColor: colors.outlineVariant,
+                  backgroundColor: colors.primaryContainer,
                   color: batteryColor,
                   semanticsLabel: '电量',
                   semanticsValue: percent == null ? '未知' : '$percent%',
@@ -1645,6 +1951,43 @@ class DashboardOverviewPanel extends StatelessWidget {
               );
             },
           ),
+          const SizedBox(height: 12),
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 11),
+            decoration: BoxDecoration(
+              color: Theme.of(context)
+                  .colorScheme
+                  .primaryContainer
+                  .withValues(alpha: 0.32),
+              borderRadius: BorderRadius.circular(_cardRadius),
+              border: Border.all(
+                color: Theme.of(context)
+                    .colorScheme
+                    .outlineVariant
+                    .withValues(alpha: 0.72),
+              ),
+            ),
+            child: Row(
+              children: [
+                Icon(
+                  Icons.favorite_rounded,
+                  color: Theme.of(context).colorScheme.primary,
+                  size: 18,
+                ),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: Text(
+                    '今天也要记得好好休息哦~',
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                          color: Theme.of(context).colorScheme.onSurfaceVariant,
+                        ),
+                  ),
+                ),
+              ],
+            ),
+          ),
         ],
       ),
     );
@@ -1660,17 +2003,24 @@ class _DashboardMetricCell extends StatelessWidget {
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final colors = theme.colorScheme;
+    final accent = metric.icon == Icons.touch_app_rounded
+        ? colors.secondary
+        : metric.icon == Icons.wb_twilight_rounded
+            ? colors.tertiary
+            : metric.icon == Icons.timer_rounded
+                ? const Color(0xFF8D68C7)
+                : colors.primary;
     return Row(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         Container(
-          width: 34,
-          height: 34,
+          width: 42,
+          height: 42,
           decoration: BoxDecoration(
-            color: colors.primaryContainer.withValues(alpha: 0.62),
-            borderRadius: BorderRadius.circular(_cardRadius),
+            color: accent.withValues(alpha: 0.14),
+            shape: BoxShape.circle,
           ),
-          child: Icon(metric.icon, size: 19, color: colors.onPrimaryContainer),
+          child: Icon(metric.icon, size: 21, color: accent),
         ),
         const SizedBox(width: 10),
         Expanded(
@@ -1872,8 +2222,14 @@ class _AmapLocationPreview extends StatelessWidget {
     );
     final polygons = accuracyPolygons(location, colors.primary);
 
-    return ClipRRect(
-      borderRadius: BorderRadius.circular(_cardRadius),
+    return Container(
+      decoration: BoxDecoration(
+        borderRadius: BorderRadius.circular(_cardRadius),
+        border: Border.all(
+          color: colors.outlineVariant.withValues(alpha: 0.72),
+        ),
+      ),
+      clipBehavior: Clip.antiAlias,
       child: SizedBox(
         height: 260,
         child: Stack(
@@ -1953,9 +2309,11 @@ class _LocationUnavailablePreview extends StatelessWidget {
     return Container(
       constraints: const BoxConstraints(minHeight: 156),
       decoration: BoxDecoration(
-        color: colors.surfaceContainerHighest.withValues(alpha: 0.54),
+        color: colors.secondaryContainer.withValues(alpha: 0.46),
         borderRadius: BorderRadius.circular(_cardRadius),
-        border: Border.all(color: colors.outlineVariant),
+        border: Border.all(
+          color: colors.outlineVariant.withValues(alpha: 0.72),
+        ),
       ),
       padding: const EdgeInsets.all(18),
       child: Row(
@@ -1964,10 +2322,13 @@ class _LocationUnavailablePreview extends StatelessWidget {
             width: 46,
             height: 46,
             decoration: BoxDecoration(
-              color: colors.primaryContainer,
-              borderRadius: BorderRadius.circular(_cardRadius),
+              color: colors.surface.withValues(alpha: 0.82),
+              shape: BoxShape.circle,
+              border: Border.all(
+                color: colors.secondary.withValues(alpha: 0.18),
+              ),
             ),
-            child: Icon(icon, color: colors.onPrimaryContainer),
+            child: Icon(icon, color: colors.secondary),
           ),
           const SizedBox(width: 14),
           Expanded(
@@ -4090,19 +4451,31 @@ class SurfacePanel extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final colors = Theme.of(context).colorScheme;
-    return Material(
-      color: colors.surface,
-      elevation: Theme.of(context).brightness == Brightness.dark ? 0 : 1,
-      shadowColor: colors.shadow.withValues(alpha: 0.08),
-      surfaceTintColor: colors.surfaceTint.withValues(alpha: 0.04),
-      clipBehavior: Clip.antiAlias,
-      shape: RoundedRectangleBorder(
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    return Container(
+      decoration: BoxDecoration(
+        color: colors.surface,
         borderRadius: BorderRadius.circular(_cardRadius),
-        side: BorderSide(color: colors.outlineVariant.withValues(alpha: 0.72)),
+        border: Border.all(
+          color: colors.outlineVariant.withValues(alpha: isDark ? 0.42 : 0.72),
+        ),
+        boxShadow: isDark
+            ? null
+            : [
+                BoxShadow(
+                  color: _loveRose.withValues(alpha: 0.045),
+                  blurRadius: 22,
+                  offset: const Offset(0, 10),
+                ),
+              ],
       ),
-      child: Padding(
-        padding: padding,
-        child: child,
+      clipBehavior: Clip.antiAlias,
+      child: Material(
+        color: Colors.transparent,
+        child: Padding(
+          padding: padding,
+          child: child,
+        ),
       ),
     );
   }
@@ -4125,6 +4498,7 @@ class SectionHeader extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
+    final colors = theme.colorScheme;
     return Row(
       crossAxisAlignment: CrossAxisAlignment.center,
       children: [
@@ -4138,7 +4512,8 @@ class SectionHeader extends StatelessWidget {
                         ? theme.textTheme.titleMedium
                         : theme.textTheme.titleLarge)
                     ?.copyWith(
-                  fontWeight: FontWeight.w800,
+                  color: colors.onSurface,
+                  fontWeight: FontWeight.w900,
                 ),
                 overflow: TextOverflow.ellipsis,
               ),
@@ -5239,13 +5614,17 @@ class StatusPill extends StatelessWidget {
     final colors = Theme.of(context).colorScheme;
     final background =
         emphasize ? colors.primaryContainer : colors.surfaceContainerHighest;
-    final foreground =
-        emphasize ? colors.onPrimaryContainer : colors.onSurfaceVariant;
+    final foreground = emphasize ? colors.primary : colors.onSurfaceVariant;
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 7),
+      padding: const EdgeInsets.symmetric(horizontal: 11, vertical: 7),
       decoration: BoxDecoration(
-        color: background,
-        borderRadius: BorderRadius.circular(_cardRadius),
+        color: background.withValues(alpha: emphasize ? 0.88 : 0.64),
+        borderRadius: BorderRadius.circular(999),
+        border: Border.all(
+          color: emphasize
+              ? colors.primary.withValues(alpha: 0.16)
+              : colors.outlineVariant.withValues(alpha: 0.68),
+        ),
       ),
       child: Row(
         mainAxisSize: MainAxisSize.min,
