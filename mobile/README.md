@@ -9,8 +9,8 @@
 - Android App 已连接公网 HTTPS 后端，不依赖局域网 IP、USB 反向代理或本机 NestJS 后端。
 - API 地址：`https://uovwpzpfdweacfftqptj.supabase.co/functions/v1/api`
 - 更新检查地址：`https://uovwpzpfdweacfftqptj.supabase.co/functions/v1/app-update`
-- 当前线上版本：`0.2.6 (2009)`
-- 当前 APK：`https://uovwpzpfdweacfftqptj.supabase.co/storage/v1/object/public/app-releases/android/mutual-watch-0.2.6-2009.apk`
+- 当前线上版本：`0.2.7 (2010)`
+- 当前 APK：`https://uovwpzpfdweacfftqptj.supabase.co/storage/v1/object/public/app-releases/android/mutual-watch-0.2.7-2010.apk`
 
 ## 主要能力
 
@@ -23,9 +23,10 @@
 - 我的页包含账号状态、设置入口和绑定入口。
 - 设置页包含隐私、权限、数据范围、退出登录和删除数据等操作。
 
-## 0.2.4-0.2.6 关键变化
+## 0.2.4-0.2.7 关键变化
 
-- 0.2.6 更新为甜美情侣向界面，采用暖白玫瑰主题、情侣状态头卡和柔和底部导航。
+- 0.2.7 按第四版重构总览页 UI 结构：沉浸式问候、双头像关系卡、相连状态条、首屏最新动态与横向今日概览。
+- 0.2.6 奠定甜美情侣向视觉主题，采用暖白玫瑰配色、柔和状态标签和底部导航。
 - 地图定位精度提高，并支持手指放大缩小。
 - 过滤 Mutual Watch 自身的应用使用记录，避免出现异常超长使用时间。
 - 单次应用使用会话最大按 4 小时展示，单日屏幕时间最大按 24 小时展示。
@@ -44,12 +45,12 @@ $env:FLUTTER_STORAGE_BASE_URL="https://storage.flutter-io.cn"
 
 flutter pub get
 flutter build apk --release --split-per-abi `
-  --build-name=0.2.6 `
-  --build-number=2009 `
+  --build-name=0.2.7 `
+  --build-number=2010 `
   --dart-define=API_BASE_URL=https://uovwpzpfdweacfftqptj.supabase.co/functions/v1/api `
   --dart-define=APP_UPDATE_URL=https://uovwpzpfdweacfftqptj.supabase.co/functions/v1/app-update `
-  --dart-define=APP_VERSION_CODE=2009 `
-  --dart-define=APP_VERSION_NAME=0.2.6 `
+  --dart-define=APP_VERSION_CODE=2010 `
+  --dart-define=APP_VERSION_NAME=0.2.7 `
   --dart-define=AMAP_ANDROID_KEY=$env:AMAP_ANDROID_KEY
 ```
 
@@ -59,9 +60,9 @@ flutter build apk --release --split-per-abi `
 Set-Location "D:\codex\monitor"
 
 .\scripts\publish_android_update.ps1 `
-  -VersionCode 2009 `
-  -VersionName "0.2.6" `
-  -ReleaseNotes "甜美情侣向界面更新：采用第四版视觉方案，优化暖白玫瑰主题、情侣状态头卡、底部导航、状态标签、今日概览和定位面板质感。"
+  -VersionCode 2010 `
+  -VersionName "0.2.7" `
+  -ReleaseNotes "真正按第四版重构情侣向首页 UI：移动端总览改为沉浸式问候页、双头像关系卡、相连状态条、首屏最新动态与横向今日概览，并保留同步、定位和使用数据能力。"
 ```
 
 ## 安装

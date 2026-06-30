@@ -677,7 +677,10 @@ class _HomeShellState extends State<HomeShell> {
   Widget build(BuildContext context) {
     final state = AppScope.of(context);
     final pages = [
-      DashboardTab(onOpenPairing: () => _selectIndex(3)),
+      DashboardTab(
+        onOpenPairing: () => _selectIndex(3),
+        onOpenUsage: () => _selectIndex(1),
+      ),
       const AppUsageTab(),
       const EventsTab(),
       const MyTab(),
@@ -686,22 +689,25 @@ class _HomeShellState extends State<HomeShell> {
     return LayoutBuilder(
       builder: (context, constraints) {
         final isWide = constraints.maxWidth >= _wideBreakpoint;
+        final immersiveDashboard = !isWide && index == 0;
         return Scaffold(
-          appBar: AppBar(
-            toolbarHeight: 68,
-            title: _HomeTitle(
-              pageTitle: destinations[index].label,
-              partnerName: state.partner?.displayName,
-              lastUpdatedAt: state.lastRefreshedAt ?? state.lastSyncedAt,
-              syncing: state.syncing,
-            ),
-            actions: [
-              Padding(
-                padding: const EdgeInsets.only(right: 8),
-                child: SyncActionButton(state: state),
-              ),
-            ],
-          ),
+          appBar: immersiveDashboard
+              ? null
+              : AppBar(
+                  toolbarHeight: 68,
+                  title: _HomeTitle(
+                    pageTitle: destinations[index].label,
+                    partnerName: state.partner?.displayName,
+                    lastUpdatedAt: state.lastRefreshedAt ?? state.lastSyncedAt,
+                    syncing: state.syncing,
+                  ),
+                  actions: [
+                    Padding(
+                      padding: const EdgeInsets.only(right: 8),
+                      child: SyncActionButton(state: state),
+                    ),
+                  ],
+                ),
           body: Row(
             children: [
               if (isWide)
@@ -727,7 +733,7 @@ class _HomeShellState extends State<HomeShell> {
                 ),
               Expanded(
                 child: SafeArea(
-                  top: false,
+                  top: immersiveDashboard,
                   child: Stack(
                     children: [
                       IndexedStack(index: index, children: pages),
@@ -950,9 +956,14 @@ class SyncActionButton extends StatelessWidget {
 }
 
 class DashboardTab extends StatelessWidget {
-  const DashboardTab({required this.onOpenPairing, super.key});
+  const DashboardTab({
+    required this.onOpenPairing,
+    required this.onOpenUsage,
+    super.key,
+  });
 
   final VoidCallback onOpenPairing;
+  final VoidCallback onOpenUsage;
 
   @override
   Widget build(BuildContext context) {
@@ -969,6 +980,11 @@ class DashboardTab extends StatelessWidget {
       appUsage: state.appUsage,
       latestEvents: latestEvents,
     );
+    Future<void> refreshDashboard() async {
+      HapticFeedback.lightImpact();
+      await state.syncTelemetry();
+      await state.refreshPartner();
+    }
 
     return AdaptiveListPage(
       onRefresh: state.refreshPartner,
@@ -990,6 +1006,13 @@ class DashboardTab extends StatelessWidget {
           const SizedBox(height: 12),
         ],
         if (state.partner == null) ...[
+          LoveDashboardHeader(
+            partnerName: null,
+            syncing: state.syncing,
+            lastUpdatedAt: state.lastRefreshedAt ?? state.lastSyncedAt,
+            onRefresh: refreshDashboard,
+          ),
+          const SizedBox(height: 12),
           EmptyPanel(
             icon: Icons.link_off_rounded,
             title: '还没有绑定对象',
@@ -1012,11 +1035,30 @@ class DashboardTab extends StatelessWidget {
             ),
             const SizedBox(height: 12),
           ],
+          LoveDashboardHeader(
+            partnerName: state.partner!.displayName,
+            syncing: state.syncing,
+            lastUpdatedAt: state.lastRefreshedAt ?? state.lastSyncedAt,
+            onRefresh: refreshDashboard,
+          ),
+          const SizedBox(height: 12),
           LoveOverviewHeroCard(
+            user: state.user,
             partner: state.partner!,
             snapshot: snapshot,
             report: report,
             sharingPaused: overview?.partner.sharingPaused ?? false,
+          ),
+          const SizedBox(height: 12),
+          LoveLatestActivityCard(
+            event: latestEvents.isEmpty ? null : latestEvents.first,
+          ),
+          const SizedBox(height: 12),
+          DashboardOverviewPanel(report: report, onOpenUsage: onOpenUsage),
+          const SizedBox(height: 12),
+          RealtimeLocationPanel(
+            location: overview?.latestLocation,
+            onRefresh: state.refreshPartner,
           ),
           const SizedBox(height: 12),
           DashboardHealthPanel(
@@ -1031,13 +1073,6 @@ class DashboardTab extends StatelessWidget {
             InsightPanel(insights: insights),
           ],
           const SizedBox(height: 12),
-          DashboardOverviewPanel(report: report),
-          const SizedBox(height: 12),
-          RealtimeLocationPanel(
-            location: overview?.latestLocation,
-            onRefresh: state.refreshPartner,
-          ),
-          const SizedBox(height: 12),
           DeviceStatusPanel(
             snapshot: snapshot,
             location: overview?.latestLocation,
@@ -1046,20 +1081,6 @@ class DashboardTab extends StatelessWidget {
             const SizedBox(height: 12),
             CapabilityNotice(items: unsupportedItems(snapshot, report)),
           ],
-          const SizedBox(height: 18),
-          SectionHeader(
-            title: '最近操作',
-            subtitle:
-                latestEvents.isEmpty ? '暂无动态' : '最新 ${latestEvents.length} 条',
-          ),
-          const SizedBox(height: 10),
-          if (latestEvents.isEmpty)
-            const EmptyPanel(
-                icon: Icons.inbox_rounded,
-                title: '暂无记录',
-                subtitle: '下一次同步后会自动更新。')
-          else
-            ...latestEvents.take(6).map((event) => EventTile(event: event)),
         ],
       ],
     );
@@ -1224,8 +1245,439 @@ class _BindingGuideStep {
   final String subtitle;
 }
 
+class LoveDashboardHeader extends StatelessWidget {
+  const LoveDashboardHeader({
+    required this.onRefresh,
+    this.partnerName,
+    this.lastUpdatedAt,
+    this.syncing = false,
+    super.key,
+  });
+
+  final String? partnerName;
+  final DateTime? lastUpdatedAt;
+  final bool syncing;
+  final Future<void> Function() onRefresh;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final colors = theme.colorScheme;
+    final hour = DateTime.now().hour;
+    final greeting = hour < 11
+        ? '早上好'
+        : hour < 14
+            ? '中午好'
+            : hour < 18
+                ? '下午好'
+                : '晚上好';
+    final name = partnerName?.trim().isNotEmpty == true ? partnerName! : '宝贝';
+    final subtitle = syncing
+        ? '正在同步你们的小小近况'
+        : lastUpdatedAt == null
+            ? '等待第一次同步'
+            : '更新于 ${formatRelativeDate(lastUpdatedAt!)}';
+
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(2, 4, 2, 0),
+      child: Row(
+        children: [
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  children: [
+                    Flexible(
+                      child: Text(
+                        '$greeting，$name',
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: theme.textTheme.headlineSmall?.copyWith(
+                          color: colors.onSurface,
+                          fontWeight: FontWeight.w900,
+                        ),
+                      ),
+                    ),
+                    const SizedBox(width: 8),
+                    Icon(
+                      Icons.favorite_border_rounded,
+                      color: colors.primary,
+                      size: 28,
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 6),
+                Row(
+                  children: [
+                    Icon(
+                      Icons.calendar_month_rounded,
+                      size: 16,
+                      color: colors.primary,
+                    ),
+                    const SizedBox(width: 6),
+                    Expanded(
+                      child: Text(
+                        subtitle,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: theme.textTheme.bodyMedium?.copyWith(
+                          color: colors.onSurfaceVariant,
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(width: 12),
+          OutlinedButton.icon(
+            onPressed: syncing ? null : onRefresh,
+            icon: syncing
+                ? SizedBox.square(
+                    dimension: 16,
+                    child: CircularProgressIndicator(
+                      strokeWidth: 2,
+                      color: colors.primary,
+                      semanticsLabel: '正在同步',
+                    ),
+                  )
+                : const Icon(Icons.refresh_rounded),
+            label: const Text('刷新'),
+            style: OutlinedButton.styleFrom(
+              minimumSize: const Size(92, 48),
+              padding: const EdgeInsets.symmetric(horizontal: 14),
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(999),
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class LoveAvatarPair extends StatelessWidget {
+  const LoveAvatarPair({
+    required this.userName,
+    required this.partnerName,
+    required this.size,
+    super.key,
+  });
+
+  final String userName;
+  final String partnerName;
+  final double size;
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = Theme.of(context).colorScheme;
+    final radius = size / 2;
+    return SizedBox(
+      width: size + 42,
+      height: size + 8,
+      child: Stack(
+        clipBehavior: Clip.none,
+        children: [
+          Positioned(
+            left: 0,
+            top: 0,
+            child: LoveInitialAvatar(
+              name: userName,
+              radius: radius,
+              background: colors.primaryContainer,
+              foreground: colors.primary,
+            ),
+          ),
+          Positioned(
+            left: size * 0.62,
+            top: 0,
+            child: LoveInitialAvatar(
+              name: partnerName,
+              radius: radius,
+              background: colors.secondaryContainer,
+              foreground: colors.secondary,
+            ),
+          ),
+          Positioned(
+            left: size * 0.54,
+            bottom: 0,
+            child: Container(
+              width: 32,
+              height: 32,
+              decoration: BoxDecoration(
+                color: colors.surface,
+                shape: BoxShape.circle,
+                border: Border.all(color: colors.outlineVariant, width: 2),
+                boxShadow: [
+                  BoxShadow(
+                    color: _loveRose.withValues(alpha: 0.12),
+                    blurRadius: 12,
+                    offset: const Offset(0, 4),
+                  ),
+                ],
+              ),
+              child: Icon(
+                Icons.favorite_rounded,
+                color: colors.primary,
+                size: 18,
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class LoveInitialAvatar extends StatelessWidget {
+  const LoveInitialAvatar({
+    required this.name,
+    required this.radius,
+    required this.background,
+    required this.foreground,
+    super.key,
+  });
+
+  final String name;
+  final double radius;
+  final Color background;
+  final Color foreground;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      decoration: BoxDecoration(
+        shape: BoxShape.circle,
+        border:
+            Border.all(color: Colors.white.withValues(alpha: 0.92), width: 3),
+        boxShadow: [
+          BoxShadow(
+            color: _loveRose.withValues(alpha: 0.10),
+            blurRadius: 18,
+            offset: const Offset(0, 8),
+          ),
+        ],
+      ),
+      child: CircleAvatar(
+        radius: radius,
+        backgroundColor: background,
+        child: Text(
+          appInitial(name),
+          style: Theme.of(context).textTheme.headlineSmall?.copyWith(
+                color: foreground,
+                fontWeight: FontWeight.w900,
+              ),
+        ),
+      ),
+    );
+  }
+}
+
+class LoveConnectionBadge extends StatelessWidget {
+  const LoveConnectionBadge({required this.days, super.key});
+
+  final int? days;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final colors = theme.colorScheme;
+    return Container(
+      width: 96,
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 12),
+      decoration: BoxDecoration(
+        color: colors.surface.withValues(alpha: 0.78),
+        borderRadius: BorderRadius.circular(_cardRadius),
+        border:
+            Border.all(color: colors.outlineVariant.withValues(alpha: 0.72)),
+      ),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Container(
+            width: 48,
+            height: 48,
+            decoration: BoxDecoration(
+              color: colors.primaryContainer.withValues(alpha: 0.68),
+              shape: BoxShape.circle,
+            ),
+            child: Icon(Icons.link_rounded, color: colors.primary, size: 26),
+          ),
+          const SizedBox(height: 8),
+          Text(
+            '我们已相连',
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: theme.textTheme.labelMedium?.copyWith(
+              color: colors.primary,
+              fontWeight: FontWeight.w800,
+            ),
+          ),
+          const SizedBox(height: 2),
+          Text(
+            days == null ? '正在记录' : '$days 天',
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: theme.textTheme.bodySmall?.copyWith(
+              color: colors.onSurfaceVariant,
+              fontWeight: FontWeight.w700,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class LoveConnectionStrip extends StatelessWidget {
+  const LoveConnectionStrip({required this.days, super.key});
+
+  final int? days;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final colors = theme.colorScheme;
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+      decoration: BoxDecoration(
+        color: colors.surface.withValues(alpha: 0.78),
+        borderRadius: BorderRadius.circular(_cardRadius),
+        border:
+            Border.all(color: colors.outlineVariant.withValues(alpha: 0.72)),
+      ),
+      child: Row(
+        children: [
+          Container(
+            width: 38,
+            height: 38,
+            decoration: BoxDecoration(
+              color: colors.primaryContainer.withValues(alpha: 0.72),
+              shape: BoxShape.circle,
+            ),
+            child: Icon(Icons.link_rounded, color: colors.primary, size: 21),
+          ),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Text(
+                  '我们已相连',
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: theme.textTheme.labelLarge?.copyWith(
+                    color: colors.primary,
+                    fontWeight: FontWeight.w900,
+                  ),
+                ),
+                Text(
+                  days == null ? '正在记录第一个甜甜的同步日' : '第 $days 天一起守护',
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: theme.textTheme.bodySmall?.copyWith(
+                    color: colors.onSurfaceVariant,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(width: 8),
+          Icon(Icons.favorite_rounded, color: colors.primary, size: 20),
+        ],
+      ),
+    );
+  }
+}
+
+class LovePromiseItem extends StatelessWidget {
+  const LovePromiseItem({
+    required this.icon,
+    required this.title,
+    required this.subtitle,
+    this.emphasize = false,
+    super.key,
+  });
+
+  final IconData icon;
+  final String title;
+  final String subtitle;
+  final bool emphasize;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final colors = theme.colorScheme;
+    final accent = emphasize ? colors.primary : colors.onSurfaceVariant;
+    return Row(
+      mainAxisAlignment: MainAxisAlignment.center,
+      children: [
+        Container(
+          width: 34,
+          height: 34,
+          decoration: BoxDecoration(
+            color: emphasize
+                ? colors.primaryContainer
+                : colors.surfaceContainerHighest.withValues(alpha: 0.64),
+            borderRadius: BorderRadius.circular(_cardRadius),
+          ),
+          child: Icon(icon, size: 18, color: accent),
+        ),
+        const SizedBox(width: 8),
+        Flexible(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Text(
+                title,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: theme.textTheme.labelLarge?.copyWith(
+                  color: colors.onSurface,
+                  fontWeight: FontWeight.w900,
+                ),
+              ),
+              Text(
+                subtitle,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: theme.textTheme.bodySmall?.copyWith(
+                  color: colors.onSurfaceVariant,
+                ),
+              ),
+            ],
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+class LovePromiseDivider extends StatelessWidget {
+  const LovePromiseDivider({super.key});
+
+  @override
+  Widget build(BuildContext context) {
+    return SizedBox(
+      height: 42,
+      child: VerticalDivider(
+        width: 14,
+        color: Theme.of(context).colorScheme.outlineVariant,
+      ),
+    );
+  }
+}
+
 class LoveOverviewHeroCard extends StatelessWidget {
   const LoveOverviewHeroCard({
+    required this.user,
     required this.partner,
     required this.sharingPaused,
     this.snapshot,
@@ -1233,6 +1685,7 @@ class LoveOverviewHeroCard extends StatelessWidget {
     super.key,
   });
 
+  final PublicUser? user;
   final PublicUser partner;
   final bool sharingPaused;
   final DeviceSnapshot? snapshot;
@@ -1245,6 +1698,8 @@ class LoveOverviewHeroCard extends StatelessWidget {
     final battery = snapshot?.batteryPercent;
     final isCharging = snapshot?.batteryCharging == true;
     final platform = snapshot?.platform ?? report?.platform ?? 'unknown';
+    final relationshipDays =
+        connectedDays(partner.createdAt ?? user?.createdAt);
 
     return SurfacePanel(
       padding: EdgeInsets.zero,
@@ -1258,43 +1713,10 @@ class LoveOverviewHeroCard extends StatelessWidget {
               Row(
                 crossAxisAlignment: CrossAxisAlignment.center,
                 children: [
-                  Stack(
-                    clipBehavior: Clip.none,
-                    children: [
-                      CircleAvatar(
-                        radius: avatarSize / 2,
-                        backgroundColor: colors.primaryContainer,
-                        foregroundColor: colors.primary,
-                        child: Text(
-                          appInitial(partner.displayName),
-                          style: theme.textTheme.headlineSmall?.copyWith(
-                            color: colors.primary,
-                            fontWeight: FontWeight.w900,
-                          ),
-                        ),
-                      ),
-                      Positioned(
-                        right: -2,
-                        bottom: -2,
-                        child: Container(
-                          width: 26,
-                          height: 26,
-                          decoration: BoxDecoration(
-                            color: colors.surface,
-                            shape: BoxShape.circle,
-                            border: Border.all(
-                              color: colors.outlineVariant,
-                              width: 2,
-                            ),
-                          ),
-                          child: Icon(
-                            Icons.favorite_rounded,
-                            size: 15,
-                            color: colors.primary,
-                          ),
-                        ),
-                      ),
-                    ],
+                  LoveAvatarPair(
+                    userName: user?.displayName ?? '我',
+                    partnerName: partner.displayName,
+                    size: avatarSize,
                   ),
                   const SizedBox(width: 14),
                   Expanded(
@@ -1324,25 +1746,14 @@ class LoveOverviewHeroCard extends StatelessWidget {
                   ),
                   if (!compact) ...[
                     const SizedBox(width: 14),
-                    Container(
-                      width: 72,
-                      height: 72,
-                      decoration: BoxDecoration(
-                        color: colors.primaryContainer.withValues(alpha: 0.52),
-                        shape: BoxShape.circle,
-                        border: Border.all(
-                          color: colors.primary.withValues(alpha: 0.16),
-                        ),
-                      ),
-                      child: Icon(
-                        Icons.link_rounded,
-                        size: 34,
-                        color: colors.primary,
-                      ),
-                    ),
+                    LoveConnectionBadge(days: relationshipDays),
                   ],
                 ],
               ),
+              if (compact) ...[
+                const SizedBox(height: 12),
+                LoveConnectionStrip(days: relationshipDays),
+              ],
               const SizedBox(height: 16),
               Wrap(
                 spacing: 8,
@@ -1365,6 +1776,11 @@ class LoveOverviewHeroCard extends StatelessWidget {
                           ? Icons.battery_charging_full_rounded
                           : Icons.battery_5_bar_rounded,
                       label: '$battery%',
+                    ),
+                  if (snapshot?.networkType != null)
+                    StatusPill(
+                      icon: Icons.wifi_rounded,
+                      label: networkLabel(snapshot?.networkType),
                     ),
                   if (snapshot?.capturedAt != null)
                     StatusPill(
@@ -1410,22 +1826,31 @@ class LoveOverviewHeroCard extends StatelessWidget {
               ),
               Padding(
                 padding: const EdgeInsets.fromLTRB(18, 14, 18, 18),
-                child: Wrap(
-                  spacing: 8,
-                  runSpacing: 8,
+                child: Row(
                   children: const [
-                    StatusPill(
-                      icon: Icons.favorite_rounded,
-                      label: '双向同意',
-                      emphasize: true,
+                    Expanded(
+                      child: LovePromiseItem(
+                        icon: Icons.favorite_rounded,
+                        title: '双向同意',
+                        subtitle: '彼此信任',
+                        emphasize: true,
+                      ),
                     ),
-                    StatusPill(
-                      icon: Icons.pause_circle_rounded,
-                      label: '可随时暂停',
+                    LovePromiseDivider(),
+                    Expanded(
+                      child: LovePromiseItem(
+                        icon: Icons.pause_circle_rounded,
+                        title: '可随时暂停',
+                        subtitle: '尊重选择',
+                      ),
                     ),
-                    StatusPill(
-                      icon: Icons.lock_rounded,
-                      label: '不看隐私内容',
+                    LovePromiseDivider(),
+                    Expanded(
+                      child: LovePromiseItem(
+                        icon: Icons.lock_rounded,
+                        title: '不看隐私内容',
+                        subtitle: '只看状态',
+                      ),
                     ),
                   ],
                 ),
@@ -1438,117 +1863,84 @@ class LoveOverviewHeroCard extends StatelessWidget {
   }
 }
 
-class OverviewHeroCard extends StatelessWidget {
-  const OverviewHeroCard({
-    required this.partner,
-    required this.sharingPaused,
-    this.snapshot,
-    this.report,
-    super.key,
-  });
+class LoveLatestActivityCard extends StatelessWidget {
+  const LoveLatestActivityCard({required this.event, super.key});
 
-  final PublicUser partner;
-  final bool sharingPaused;
-  final DeviceSnapshot? snapshot;
-  final DailyUsageReport? report;
+  final OperationEvent? event;
 
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final colors = theme.colorScheme;
-    final battery = snapshot?.batteryPercent;
-    final isCharging = snapshot?.batteryCharging == true;
-    final platform = snapshot?.platform ?? report?.platform ?? 'unknown';
+    final current = event;
+    final title = current == null ? '暂无动态' : eventTitle(current);
+    final subtitle = current == null
+        ? '下一次同步后会出现在这里'
+        : '${formatRelativeTime(current.occurredAt)} · ${platformLabel(current.platform)}';
+    final detail = current == null ? null : eventDetailLine(current);
 
     return SurfacePanel(
-      padding: const EdgeInsets.all(18),
-      child: LayoutBuilder(
-        builder: (context, constraints) {
-          final compact = constraints.maxWidth < 560;
-          final summary = Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Row(
-                children: [
-                  CircleAvatar(
-                    radius: 24,
-                    backgroundColor: colors.tertiaryContainer,
-                    foregroundColor: colors.onTertiaryContainer,
-                    child: Text(appInitial(partner.displayName)),
-                  ),
-                  const SizedBox(width: 12),
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(
-                          partner.displayName,
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                          style: theme.textTheme.headlineSmall
-                              ?.copyWith(fontWeight: FontWeight.w900),
-                        ),
-                        const SizedBox(height: 3),
-                        Text(
-                          snapshot?.model ??
-                              (sharingPaused ? '对方已暂停共享' : '等待设备同步'),
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                          style: theme.textTheme.bodyMedium
-                              ?.copyWith(color: colors.onSurfaceVariant),
-                        ),
-                      ],
-                    ),
-                  ),
-                ],
-              ),
-              const SizedBox(height: 16),
-              Wrap(
-                spacing: 8,
-                runSpacing: 8,
-                children: [
-                  StatusPill(
-                    icon: sharingPaused
-                        ? Icons.pause_circle_rounded
-                        : Icons.check_circle_rounded,
-                    label: sharingPaused ? '已暂停' : '共享中',
-                    emphasize: !sharingPaused,
-                  ),
-                  StatusPill(
-                      icon: platformIcon(platform),
-                      label: platformLabel(platform)),
-                  if (snapshot?.capturedAt != null)
-                    StatusPill(
-                        icon: Icons.schedule_rounded,
-                        label: formatRelativeTime(snapshot!.capturedAt)),
-                ],
-              ),
-            ],
-          );
-          final batteryPanel = BatteryPanel(
-            percent: battery,
-            charging: isCharging,
-            network: snapshot?.networkType,
-          );
-
-          if (compact) {
-            return Column(
-              crossAxisAlignment: CrossAxisAlignment.stretch,
+      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+      child: Row(
+        children: [
+          Container(
+            width: 42,
+            height: 42,
+            decoration: BoxDecoration(
+              color: colors.primaryContainer,
+              shape: BoxShape.circle,
+            ),
+            child: Icon(
+              current == null
+                  ? Icons.schedule_rounded
+                  : eventIcon(current.type),
+              color: colors.primary,
+              size: 22,
+            ),
+          ),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                summary,
-                const SizedBox(height: 18),
-                batteryPanel,
+                Row(
+                  children: [
+                    Text(
+                      '最新动态',
+                      style: theme.textTheme.titleMedium?.copyWith(
+                        color: colors.onSurface,
+                        fontWeight: FontWeight.w900,
+                      ),
+                    ),
+                    const SizedBox(width: 10),
+                    Expanded(
+                      child: Text(
+                        title,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: theme.textTheme.bodyMedium?.copyWith(
+                          color: colors.onSurfaceVariant,
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 2),
+                Text(
+                  detail == null ? subtitle : '$subtitle · $detail',
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: theme.textTheme.bodySmall?.copyWith(
+                    color: colors.onSurfaceVariant,
+                  ),
+                ),
               ],
-            );
-          }
-          return Row(
-            children: [
-              Expanded(child: summary),
-              const SizedBox(width: 18),
-              SizedBox(width: 220, child: batteryPanel),
-            ],
-          );
-        },
+            ),
+          ),
+          const SizedBox(width: 8),
+          Icon(Icons.chevron_right_rounded, color: colors.primary),
+        ],
       ),
     );
   }
@@ -1866,9 +2258,10 @@ class BatteryPanel extends StatelessWidget {
 }
 
 class DashboardOverviewPanel extends StatelessWidget {
-  const DashboardOverviewPanel({this.report, super.key});
+  const DashboardOverviewPanel({this.report, this.onOpenUsage, super.key});
 
   final DailyUsageReport? report;
+  final VoidCallback? onOpenUsage;
 
   @override
   Widget build(BuildContext context) {
@@ -1910,7 +2303,15 @@ class DashboardOverviewPanel extends StatelessWidget {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          SectionHeader(title: '今日概览', subtitle: subtitle, dense: true),
+          SectionHeader(
+            title: '今日概览',
+            subtitle: subtitle,
+            dense: true,
+            trailing: TextButton(
+              onPressed: onOpenUsage,
+              child: const Text('查看全部'),
+            ),
+          ),
           const SizedBox(height: 12),
           LayoutBuilder(
             builder: (context, constraints) {
@@ -1935,18 +2336,22 @@ class DashboardOverviewPanel extends StatelessWidget {
                   ],
                 );
               }
-              final cellWidth = (constraints.maxWidth - 12) / 2;
-              return Wrap(
-                spacing: 12,
-                runSpacing: 14,
+              return Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  for (final item in items)
-                    SizedBox(
-                      width: cellWidth
-                          .clamp(128.0, constraints.maxWidth)
-                          .toDouble(),
-                      child: _DashboardMetricCell(metric: item),
+                  for (var index = 0; index < items.length; index++) ...[
+                    Expanded(
+                      child: _DashboardMetricColumn(metric: items[index]),
                     ),
+                    if (index != items.length - 1)
+                      SizedBox(
+                        height: 110,
+                        child: VerticalDivider(
+                          width: 10,
+                          color: Theme.of(context).colorScheme.outlineVariant,
+                        ),
+                      ),
+                  ],
                 ],
               );
             },
@@ -2003,13 +2408,7 @@ class _DashboardMetricCell extends StatelessWidget {
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final colors = theme.colorScheme;
-    final accent = metric.icon == Icons.touch_app_rounded
-        ? colors.secondary
-        : metric.icon == Icons.wb_twilight_rounded
-            ? colors.tertiary
-            : metric.icon == Icons.timer_rounded
-                ? const Color(0xFF8D68C7)
-                : colors.primary;
+    final accent = dashboardMetricAccent(metric.icon, colors);
     return Row(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -2052,6 +2451,66 @@ class _DashboardMetricCell extends StatelessWidget {
                 ),
               ),
             ],
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+class _DashboardMetricColumn extends StatelessWidget {
+  const _DashboardMetricColumn({required this.metric});
+
+  final _DashboardMetric metric;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final colors = theme.colorScheme;
+    final accent = dashboardMetricAccent(metric.icon, colors);
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Container(
+          width: 48,
+          height: 48,
+          decoration: BoxDecoration(
+            color: accent.withValues(alpha: 0.14),
+            shape: BoxShape.circle,
+          ),
+          child: Icon(metric.icon, size: 23, color: accent),
+        ),
+        const SizedBox(height: 9),
+        FittedBox(
+          fit: BoxFit.scaleDown,
+          child: Text(
+            metric.value,
+            maxLines: 1,
+            style: theme.textTheme.titleMedium?.copyWith(
+              color: colors.onSurface,
+              fontWeight: FontWeight.w900,
+            ),
+          ),
+        ),
+        const SizedBox(height: 3),
+        Text(
+          metric.label,
+          maxLines: 1,
+          overflow: TextOverflow.ellipsis,
+          textAlign: TextAlign.center,
+          style: theme.textTheme.labelMedium?.copyWith(
+            color: colors.onSurface,
+            fontWeight: FontWeight.w800,
+          ),
+        ),
+        const SizedBox(height: 3),
+        Text(
+          metric.helper,
+          maxLines: 1,
+          overflow: TextOverflow.ellipsis,
+          textAlign: TextAlign.center,
+          style: theme.textTheme.bodySmall?.copyWith(
+            color: colors.onSurfaceVariant,
           ),
         ),
       ],
@@ -2606,6 +3065,19 @@ class _DashboardMetric {
   final String label;
   final String value;
   final String helper;
+}
+
+Color dashboardMetricAccent(IconData icon, ColorScheme colors) {
+  if (icon == Icons.touch_app_rounded) {
+    return colors.secondary;
+  }
+  if (icon == Icons.wb_twilight_rounded) {
+    return colors.tertiary;
+  }
+  if (icon == Icons.timer_rounded) {
+    return const Color(0xFF8D68C7);
+  }
+  return colors.primary;
 }
 
 class _StatusLineData {
@@ -5774,6 +6246,16 @@ String formatDateTime(String? iso) {
   final month = value.month.toString().padLeft(2, '0');
   final day = value.day.toString().padLeft(2, '0');
   return '$month/$day ${formatTime(iso)}';
+}
+
+int? connectedDays(String? iso) {
+  if (iso == null || iso.isEmpty) return null;
+  final value = DateTime.tryParse(iso)?.toLocal();
+  if (value == null) return null;
+  final now = DateTime.now();
+  final start = DateTime(value.year, value.month, value.day);
+  final today = DateTime(now.year, now.month, now.day);
+  return math.max(1, today.difference(start).inDays + 1);
 }
 
 String eventDateKey(String? iso) {

@@ -835,7 +835,7 @@ void main() {
     }
   });
 
-  testWidgets('Dashboard health panel fits a compact phone viewport',
+  testWidgets('Dashboard romantic overview fits a compact phone viewport',
       (WidgetTester tester) async {
     tester.view.physicalSize = const Size(390, 844);
     tester.view.devicePixelRatio = 1;
@@ -881,8 +881,10 @@ void main() {
     );
 
     expect(tester.takeException(), isNull);
-    expect(find.text('数据健康度'), findsOneWidget);
-    expect(find.text('共享中'), findsWidgets);
+    expect(find.textContaining('好，Partner'), findsOneWidget);
+    expect(find.text('双向同意'), findsOneWidget);
+    expect(find.text('今日概览'), findsOneWidget);
+    expect(find.text('最新动态'), findsOneWidget);
   });
 
   testWidgets('Dashboard warns when my sharing is paused',
