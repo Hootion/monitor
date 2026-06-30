@@ -988,7 +988,7 @@ class DashboardTab extends StatelessWidget {
     }
 
     return AdaptiveListPage(
-      onRefresh: state.refreshPartner,
+      onRefresh: refreshDashboard,
       children: [
         if (state.error != null) ErrorBanner(message: state.error!),
         if (!state.usageAccessGranted &&
@@ -2639,6 +2639,7 @@ class _RealtimeLocationPanelState extends State<RealtimeLocationPanel> {
               location: location!,
               approvalNumber: _approvalNumber,
               onMapCreated: _onMapCreated,
+              onExpand: _openFullScreenMap,
             )
           else
             _LocationUnavailablePreview(
@@ -2697,6 +2698,26 @@ class _RealtimeLocationPanelState extends State<RealtimeLocationPanel> {
       duration: animated ? 260 : 0,
     );
   }
+
+  Future<void> _openFullScreenMap() async {
+    final location = widget.location;
+    final point = locationPoint(location);
+    if (location == null || point == null) {
+      return;
+    }
+
+    await showDialog<void>(
+      context: context,
+      useSafeArea: false,
+      barrierColor: Colors.black.withValues(alpha: 0.38),
+      builder: (dialogContext) => _FullScreenLocationMap(
+        point: point,
+        location: location,
+        approvalNumber: _approvalNumber,
+        onClose: () => Navigator.of(dialogContext).pop(),
+      ),
+    );
+  }
 }
 
 class _AmapLocationPreview extends StatelessWidget {
@@ -2704,12 +2725,130 @@ class _AmapLocationPreview extends StatelessWidget {
     required this.point,
     required this.location,
     required this.onMapCreated,
+    required this.onExpand,
     this.approvalNumber,
   });
 
   final LatLng point;
   final DeviceLocation location;
   final String? approvalNumber;
+  final MapCreatedCallback onMapCreated;
+  final VoidCallback onExpand;
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = Theme.of(context).colorScheme;
+
+    return Container(
+      decoration: BoxDecoration(
+        borderRadius: BorderRadius.circular(_cardRadius),
+        border: Border.all(
+          color: colors.outlineVariant.withValues(alpha: 0.72),
+        ),
+      ),
+      clipBehavior: Clip.antiAlias,
+      child: SizedBox(
+        height: 260,
+        child: Stack(
+          children: [
+            _AmapLocationMap(
+              point: point,
+              location: location,
+              onMapCreated: onMapCreated,
+            ),
+            Positioned(
+              top: 10,
+              right: 10,
+              child: _MapOverlayIconButton(
+                tooltip: '放大地图',
+                icon: Icons.fullscreen_rounded,
+                onPressed: onExpand,
+              ),
+            ),
+            Positioned(
+              left: 10,
+              right: 10,
+              bottom: 10,
+              child: _MapDetailBar(
+                location: location,
+                approvalNumber: approvalNumber,
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _FullScreenLocationMap extends StatelessWidget {
+  const _FullScreenLocationMap({
+    required this.point,
+    required this.location,
+    required this.onClose,
+    this.approvalNumber,
+  });
+
+  final LatLng point;
+  final DeviceLocation location;
+  final VoidCallback onClose;
+  final String? approvalNumber;
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = Theme.of(context).colorScheme;
+    final safePadding = MediaQuery.paddingOf(context);
+
+    return Material(
+      color: colors.surface,
+      child: Stack(
+        children: [
+          Positioned.fill(
+            child: _AmapLocationMap(
+              point: point,
+              location: location,
+              onMapCreated: (controller) async {
+                await controller.moveCamera(
+                  CameraUpdate.newLatLngZoom(point, 17.5),
+                  animated: false,
+                  duration: 0,
+                );
+              },
+            ),
+          ),
+          Positioned(
+            top: safePadding.top + 12,
+            right: 12,
+            child: _MapOverlayIconButton(
+              tooltip: '缩小地图',
+              icon: Icons.fullscreen_exit_rounded,
+              onPressed: onClose,
+            ),
+          ),
+          Positioned(
+            left: 12,
+            right: 12,
+            bottom: safePadding.bottom + 12,
+            child: _MapDetailBar(
+              location: location,
+              approvalNumber: approvalNumber,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _AmapLocationMap extends StatelessWidget {
+  const _AmapLocationMap({
+    required this.point,
+    required this.location,
+    required this.onMapCreated,
+  });
+
+  final LatLng point;
+  final DeviceLocation location;
   final MapCreatedCallback onMapCreated;
 
   @override
@@ -2724,70 +2863,97 @@ class _AmapLocationPreview extends StatelessWidget {
     );
     final polygons = accuracyPolygons(location, colors.primary);
 
-    return Container(
-      decoration: BoxDecoration(
-        borderRadius: BorderRadius.circular(_cardRadius),
-        border: Border.all(
-          color: colors.outlineVariant.withValues(alpha: 0.72),
+    return AMapWidget(
+      apiKey: const AMapApiKey(
+        androidKey: AppState.amapAndroidKey,
+        iosKey: '',
+      ),
+      privacyStatement: const AMapPrivacyStatement(
+        hasContains: true,
+        hasShow: true,
+        hasAgree: true,
+      ),
+      initialCameraPosition: CameraPosition(target: point, zoom: 17.5),
+      gestureRecognizers: _mapGestureRecognizers,
+      markers: {marker},
+      polygons: polygons,
+      minMaxZoomPreference: const MinMaxZoomPreference(3, 20),
+      scaleEnabled: true,
+      compassEnabled: true,
+      zoomGesturesEnabled: true,
+      scrollGesturesEnabled: true,
+      rotateGesturesEnabled: false,
+      tiltGesturesEnabled: false,
+      buildingsEnabled: true,
+      onMapCreated: onMapCreated,
+    );
+  }
+}
+
+class _MapOverlayIconButton extends StatelessWidget {
+  const _MapOverlayIconButton({
+    required this.tooltip,
+    required this.icon,
+    required this.onPressed,
+  });
+
+  final String tooltip;
+  final IconData icon;
+  final VoidCallback onPressed;
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = Theme.of(context).colorScheme;
+
+    return Material(
+      color: colors.surface.withValues(alpha: 0.94),
+      shape: const CircleBorder(),
+      elevation: 2,
+      child: SizedBox.square(
+        dimension: 44,
+        child: IconButton(
+          tooltip: tooltip,
+          onPressed: onPressed,
+          icon: Icon(icon),
+          color: colors.onSurface,
         ),
       ),
-      clipBehavior: Clip.antiAlias,
-      child: SizedBox(
-        height: 260,
-        child: Stack(
-          children: [
-            AMapWidget(
-              apiKey: const AMapApiKey(
-                androidKey: AppState.amapAndroidKey,
-                iosKey: '',
+    );
+  }
+}
+
+class _MapDetailBar extends StatelessWidget {
+  const _MapDetailBar({
+    required this.location,
+    this.approvalNumber,
+  });
+
+  final DeviceLocation location;
+  final String? approvalNumber;
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = Theme.of(context).colorScheme;
+    final detail = approvalNumber == null || approvalNumber!.trim().isEmpty
+        ? locationDetailLabel(location)
+        : '${locationDetailLabel(location)} · $approvalNumber';
+
+    return DecoratedBox(
+      decoration: BoxDecoration(
+        color: colors.surface.withValues(alpha: 0.92),
+        borderRadius: BorderRadius.circular(_cardRadius),
+        border: Border.all(color: colors.outlineVariant),
+      ),
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+        child: Text(
+          detail,
+          maxLines: 2,
+          overflow: TextOverflow.ellipsis,
+          style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                color: colors.onSurfaceVariant,
+                height: 1.25,
               ),
-              privacyStatement: const AMapPrivacyStatement(
-                hasContains: true,
-                hasShow: true,
-                hasAgree: true,
-              ),
-              initialCameraPosition: CameraPosition(target: point, zoom: 17.5),
-              gestureRecognizers: _mapGestureRecognizers,
-              markers: {marker},
-              polygons: polygons,
-              minMaxZoomPreference: const MinMaxZoomPreference(3, 20),
-              scaleEnabled: true,
-              compassEnabled: true,
-              zoomGesturesEnabled: true,
-              scrollGesturesEnabled: true,
-              rotateGesturesEnabled: false,
-              tiltGesturesEnabled: false,
-              buildingsEnabled: true,
-              onMapCreated: onMapCreated,
-            ),
-            Positioned(
-              left: 10,
-              right: 10,
-              bottom: 10,
-              child: DecoratedBox(
-                decoration: BoxDecoration(
-                  color: colors.surface.withValues(alpha: 0.92),
-                  borderRadius: BorderRadius.circular(_cardRadius),
-                  border: Border.all(color: colors.outlineVariant),
-                ),
-                child: Padding(
-                  padding:
-                      const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
-                  child: Text(
-                    approvalNumber == null || approvalNumber!.trim().isEmpty
-                        ? locationDetailLabel(location)
-                        : '${locationDetailLabel(location)} · $approvalNumber',
-                    maxLines: 2,
-                    overflow: TextOverflow.ellipsis,
-                    style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                          color: colors.onSurfaceVariant,
-                          height: 1.25,
-                        ),
-                  ),
-                ),
-              ),
-            ),
-          ],
         ),
       ),
     );

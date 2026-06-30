@@ -9,8 +9,8 @@
 - Android App 已连接公网 HTTPS 后端，不依赖局域网 IP、USB 反向代理或本机 NestJS 后端。
 - API 地址：`https://uovwpzpfdweacfftqptj.supabase.co/functions/v1/api`
 - 更新检查地址：`https://uovwpzpfdweacfftqptj.supabase.co/functions/v1/app-update`
-- 当前线上版本：`0.2.8 (2011)`
-- 当前 APK：`https://uovwpzpfdweacfftqptj.supabase.co/storage/v1/object/public/app-releases/android/mutual-watch-0.2.8-2011.apk`
+- 当前线上版本：`0.2.9 (2012)`
+- 当前 APK：`https://uovwpzpfdweacfftqptj.supabase.co/storage/v1/object/public/app-releases/android/mutual-watch-0.2.9-2012.apk`
 
 ## 主要能力
 
@@ -23,8 +23,10 @@
 - 我的页包含账号状态、编辑资料、设置入口和绑定入口。
 - 设置页包含隐私状态、权限与可用性、退出登录和删除数据等操作。
 
-## 0.2.4-0.2.8 关键变化
+## 0.2.4-0.2.9 关键变化
 
+- 0.2.9 优化实时定位和地图展示：按时间/精度选择更可靠位置，Android 坐标转换为高德地图可用坐标，并支持全屏地图查看。
+- 0.2.9 Android 前台服务会定期补充设备状态快照，总览刷新会先同步本机状态再刷新对方概览。
 - 0.2.8 修复应用页空状态诊断，新增编辑资料和头像上传，调整总览姓名显示和设置折叠结构。
 - 0.2.7 按第四版重构总览页 UI 结构：沉浸式问候、双头像关系卡、相连状态条、首屏最新动态与横向今日概览。
 - 0.2.6 奠定甜美情侣向视觉主题，采用暖白玫瑰配色、柔和状态标签和底部导航。
@@ -46,12 +48,12 @@ $env:FLUTTER_STORAGE_BASE_URL="https://storage.flutter-io.cn"
 
 flutter pub get
 flutter build apk --release --split-per-abi `
-  --build-name=0.2.8 `
-  --build-number=2011 `
+  --build-name=0.2.9 `
+  --build-number=2012 `
   --dart-define=API_BASE_URL=https://uovwpzpfdweacfftqptj.supabase.co/functions/v1/api `
   --dart-define=APP_UPDATE_URL=https://uovwpzpfdweacfftqptj.supabase.co/functions/v1/app-update `
-  --dart-define=APP_VERSION_CODE=2011 `
-  --dart-define=APP_VERSION_NAME=0.2.8 `
+  --dart-define=APP_VERSION_CODE=2012 `
+  --dart-define=APP_VERSION_NAME=0.2.9 `
   --dart-define=AMAP_ANDROID_KEY=$env:AMAP_ANDROID_KEY
 ```
 
@@ -61,9 +63,9 @@ flutter build apk --release --split-per-abi `
 Set-Location "D:\codex\monitor"
 
 .\scripts\publish_android_update.ps1 `
-  -VersionCode 2011 `
-  -VersionName "0.2.8" `
-  -ReleaseNotes "修复应用页空状态诊断，新增个人资料编辑和头像上传，调整总览姓名显示与设置折叠结构。"
+  -VersionCode 2012 `
+  -VersionName "0.2.9" `
+  -ReleaseNotes "优化实时定位和地图展示，新增全屏地图查看；后台定期同步电量、网络、存储等设备状态；修正总览刷新会先同步本机状态。"
 ```
 
 ## 安装
@@ -97,7 +99,7 @@ com.mutualwatch.mutual_watch
 客户端请求：
 
 ```text
-https://uovwpzpfdweacfftqptj.supabase.co/functions/v1/app-update?platform=android&currentVersionCode=2010
+https://uovwpzpfdweacfftqptj.supabase.co/functions/v1/app-update?platform=android&currentVersionCode=2011
 ```
 
 如果返回 `updateAvailable: true`，App 会弹窗提示下载。Android 安装 APK 仍需要用户在系统界面确认，不能静默安装。

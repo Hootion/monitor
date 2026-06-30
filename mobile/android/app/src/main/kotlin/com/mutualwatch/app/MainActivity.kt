@@ -180,16 +180,17 @@ class MainActivity : FlutterActivity() {
             } else {
                 val location = providers.mapNotNull { provider ->
                     runCatching { locationManager.getLastKnownLocation(provider) }.getOrNull()
-                }.maxByOrNull { it.time }
+                }.bestAvailableLocation()
                 if (location == null) {
                     locationStatus("unavailable")
                 } else {
+                    val coordinate = location.toAmapCoordinate()
                     mapOf(
                         "platform" to "android",
                         "capturedAt" to isoFromMillis(location.time),
                         "status" to "available",
-                        "latitude" to location.latitude,
-                        "longitude" to location.longitude,
+                        "latitude" to coordinate.latitude,
+                        "longitude" to coordinate.longitude,
                         "accuracyMeters" to if (location.hasAccuracy()) location.accuracy.toDouble() else null
                     )
                 }

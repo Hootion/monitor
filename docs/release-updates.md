@@ -6,9 +6,9 @@
 
 ## 当前线上版本
 
-- 版本名：`0.2.8`
-- 版本码：`2011`
-- APK：`https://uovwpzpfdweacfftqptj.supabase.co/storage/v1/object/public/app-releases/android/mutual-watch-0.2.8-2011.apk`
+- 版本名：`0.2.9`
+- 版本码：`2012`
+- APK：`https://uovwpzpfdweacfftqptj.supabase.co/storage/v1/object/public/app-releases/android/mutual-watch-0.2.9-2012.apk`
 - 更新接口：`https://uovwpzpfdweacfftqptj.supabase.co/functions/v1/app-update`
 
 从 `0.2.5` 开始，App 会在启动和回到前台时检查更新，并且检查更新不要求用户已经登录。更旧版本如果停在登录页、登录失效或网络异常，可能不会自动弹出更新框，可以直接使用 APK 链接安装。
@@ -41,9 +41,9 @@ AMAP_ANDROID_KEY=...
 Set-Location "D:\codex\monitor"
 
 .\scripts\publish_android_update.ps1 `
-  -VersionCode 2011 `
-  -VersionName "0.2.8" `
-  -ReleaseNotes "修复应用页空状态诊断，新增个人资料编辑和头像上传，调整总览姓名显示与设置折叠结构。"
+  -VersionCode 2012 `
+  -VersionName "0.2.9" `
+  -ReleaseNotes "优化实时定位和地图展示，新增全屏地图查看；后台定期同步电量、网络、存储等设备状态；修正总览刷新会先同步本机状态。"
 ```
 
 脚本会执行：
@@ -61,10 +61,10 @@ Set-Location "D:\codex\monitor"
 
 ```powershell
 .\scripts\publish_android_update.ps1 `
-  -VersionCode 2011 `
-  -VersionName "0.2.8" `
+  -VersionCode 2012 `
+  -VersionName "0.2.9" `
   -SkipBuild `
-  -ReleaseNotes "修复应用页空状态诊断，新增个人资料编辑和头像上传，调整总览姓名显示与设置折叠结构。"
+  -ReleaseNotes "优化实时定位和地图展示，新增全屏地图查看；后台定期同步电量、网络、存储等设备状态；修正总览刷新会先同步本机状态。"
 ```
 
 如果 APK 已经有外部 HTTPS 地址，可以同时传入 `-ApkUrl`。
@@ -74,22 +74,22 @@ Set-Location "D:\codex\monitor"
 检查旧版本是否能看到新版本：
 
 ```powershell
-Invoke-RestMethod -Uri "https://uovwpzpfdweacfftqptj.supabase.co/functions/v1/app-update?platform=android&currentVersionCode=2010"
+Invoke-RestMethod -Uri "https://uovwpzpfdweacfftqptj.supabase.co/functions/v1/app-update?platform=android&currentVersionCode=2011"
 ```
 
 预期返回 `updateAvailable: true`，并包含：
 
 ```json
 {
-  "versionCode": 2011,
-  "versionName": "0.2.8"
+  "versionCode": 2012,
+  "versionName": "0.2.9"
 }
 ```
 
 检查当前版本不会重复提示：
 
 ```powershell
-Invoke-RestMethod -Uri "https://uovwpzpfdweacfftqptj.supabase.co/functions/v1/app-update?platform=android&currentVersionCode=2011"
+Invoke-RestMethod -Uri "https://uovwpzpfdweacfftqptj.supabase.co/functions/v1/app-update?platform=android&currentVersionCode=2012"
 ```
 
 预期：
@@ -101,7 +101,7 @@ Invoke-RestMethod -Uri "https://uovwpzpfdweacfftqptj.supabase.co/functions/v1/ap
 检查 APK 下载：
 
 ```powershell
-curl.exe -I -L "https://uovwpzpfdweacfftqptj.supabase.co/storage/v1/object/public/app-releases/android/mutual-watch-0.2.8-2011.apk"
+curl.exe -I -L "https://uovwpzpfdweacfftqptj.supabase.co/storage/v1/object/public/app-releases/android/mutual-watch-0.2.9-2012.apk"
 ```
 
 预期返回 `HTTP/1.1 200 OK`，`Content-Type: application/vnd.android.package-archive`。
@@ -112,8 +112,8 @@ curl.exe -I -L "https://uovwpzpfdweacfftqptj.supabase.co/storage/v1/object/publi
 
 先确认设备当前安装版本。如果是 `0.2.4` 或更旧版本，旧客户端可能只有进入主界面后才检查更新。处理方式：
 
-1. 直接安装当前 APK：`https://uovwpzpfdweacfftqptj.supabase.co/storage/v1/object/public/app-releases/android/mutual-watch-0.2.8-2011.apk`
-2. 安装到 `0.2.8` 后，后续启动和回到前台都会检查更新。
+1. 直接安装当前 APK：`https://uovwpzpfdweacfftqptj.supabase.co/storage/v1/object/public/app-releases/android/mutual-watch-0.2.9-2012.apk`
+2. 安装到 `0.2.9` 后，后续启动和回到前台都会检查更新。
 
 ### 显示“暂时连接不上服务器”
 

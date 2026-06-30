@@ -5,29 +5,42 @@ import android.app.Notification
 import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.app.Service
+import android.app.usage.NetworkStats
+import android.app.usage.NetworkStatsManager
+import android.bluetooth.BluetoothAdapter
 import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
 import android.content.IntentFilter
 import android.content.SharedPreferences
 import android.content.pm.PackageManager
+import android.media.AudioManager
 import android.content.pm.ServiceInfo
 import android.location.Location
 import android.location.LocationListener
 import android.location.LocationManager
 import android.net.ConnectivityManager
 import android.net.Network
+import android.net.NetworkCapabilities
+import android.net.TrafficStats
+import android.net.wifi.WifiManager
+import android.os.BatteryManager
 import android.os.Build
 import android.os.Bundle
+import android.os.Environment
 import android.os.Handler
 import android.os.IBinder
 import android.os.Looper
+import android.os.StatFs
 import android.telephony.PhoneStateListener
 import android.telephony.TelephonyCallback
 import android.telephony.TelephonyManager
+import org.json.JSONArray
 import org.json.JSONObject
 import java.net.HttpURLConnection
 import java.net.URL
+import java.time.LocalDate
+import java.time.ZoneId
 
 class TelemetryForegroundService : Service() {
     private val handler = Handler(Looper.getMainLooper())
@@ -35,6 +48,13 @@ class TelemetryForegroundService : Service() {
     private var apiBaseUrl: String? = null
     private var accessToken: String? = null
     private var refreshToken: String? = null
+    @Volatile private var lastDeviceSnapshotUploadAt = 0L
+
+    private data class NetworkInfo(
+        val type: String,
+        val name: String?,
+        val speedKbps: Int?
+    )
 
     private val screenReceiver = object : BroadcastReceiver() {
         override fun onReceive(context: Context, intent: Intent) {
@@ -57,7 +77,9 @@ class TelemetryForegroundService : Service() {
 
     private val locationListener = object : LocationListener {
         override fun onLocationChanged(location: Location) {
-            latestLocation = location
+            if (location.isBetterThan(latestLocation)) {
+                latestLocation = location
+            }
         }
 
         @Deprecated("Deprecated by Android")
@@ -70,7 +92,7 @@ class TelemetryForegroundService : Service() {
 
     private val uploadRunnable = object : Runnable {
         override fun run() {
-            uploadLatestLocation()
+            uploadTelemetrySnapshot()
             handler.postDelayed(this, LOCATION_UPLOAD_INTERVAL_MS)
         }
     }
@@ -179,9 +201,11 @@ class TelemetryForegroundService : Service() {
         val manager = getSystemService(LocationManager::class.java) ?: return
         val providers = listOf(LocationManager.GPS_PROVIDER, LocationManager.NETWORK_PROVIDER)
             .filter { provider -> runCatching { manager.isProviderEnabled(provider) }.getOrDefault(false) }
-        latestLocation = providers.mapNotNull { provider ->
-            runCatching { manager.getLastKnownLocation(provider) }.getOrNull()
-        }.maxByOrNull { it.time } ?: latestLocation
+        latestLocation = (
+            providers.mapNotNull { provider ->
+                runCatching { manager.getLastKnownLocation(provider) }.getOrNull()
+            } + listOfNotNull(latestLocation)
+        ).bestAvailableLocation()
         for (provider in providers) {
             runCatching {
                 manager.requestLocationUpdates(
@@ -209,18 +233,142 @@ class TelemetryForegroundService : Service() {
             checkSelfPermission(Manifest.permission.ACCESS_BACKGROUND_LOCATION) == PackageManager.PERMISSION_GRANTED
     }
 
-    private fun uploadLatestLocation() {
-        val baseUrl = currentApiBaseUrl() ?: return
-        val body = JSONObject().put("locationSnapshot", locationJson()).toString()
+    private fun uploadTelemetrySnapshot() {
         Thread {
+            val baseUrl = currentApiBaseUrl() ?: return@Thread
             val token = currentAccessToken() ?: return@Thread
+            val includeDeviceSnapshot = shouldUploadDeviceSnapshot()
+            val bodyJson = JSONObject()
+                .put("locationSnapshot", locationJson())
+            if (includeDeviceSnapshot) {
+                bodyJson.put("deviceSnapshot", deviceSnapshotJson())
+            }
+            val body = bodyJson.toString()
             val status = postJson("$baseUrl/telemetry/batch", token, body)
+            var accepted = status in 200..299
             if (status == HttpURLConnection.HTTP_UNAUTHORIZED && refreshSession(baseUrl)) {
                 currentAccessToken()?.let { refreshed ->
-                    postJson("$baseUrl/telemetry/batch", refreshed, body)
+                    accepted = postJson("$baseUrl/telemetry/batch", refreshed, body) in 200..299
                 }
             }
+            if (accepted && includeDeviceSnapshot) {
+                lastDeviceSnapshotUploadAt = System.currentTimeMillis()
+            }
         }.start()
+    }
+
+    private fun shouldUploadDeviceSnapshot(): Boolean {
+        val ageMs = System.currentTimeMillis() - lastDeviceSnapshotUploadAt
+        return lastDeviceSnapshotUploadAt == 0L || ageMs >= DEVICE_SNAPSHOT_UPLOAD_INTERVAL_MS
+    }
+
+    private fun deviceSnapshotJson(): JSONObject {
+        val battery = registerReceiver(null, IntentFilter(Intent.ACTION_BATTERY_CHANGED))
+        val level = battery?.getIntExtra(BatteryManager.EXTRA_LEVEL, -1) ?: -1
+        val scale = battery?.getIntExtra(BatteryManager.EXTRA_SCALE, -1) ?: -1
+        val status = battery?.getIntExtra(BatteryManager.EXTRA_STATUS, -1) ?: -1
+        val batteryPercent = if (level >= 0 && scale > 0) (level * 100 / scale) else null
+        val audio = getSystemService(AudioManager::class.java)
+        val maxVolume = audio.getStreamMaxVolume(AudioManager.STREAM_MUSIC)
+        val volume = if (maxVolume > 0) {
+            audio.getStreamVolume(AudioManager.STREAM_MUSIC) * 100 / maxVolume
+        } else {
+            null
+        }
+        val storage = StatFs(Environment.getDataDirectory().path)
+        val totalBytes = storage.blockSizeLong * storage.blockCountLong
+        val availableBytes = storage.blockSizeLong * storage.availableBlocksLong
+        val network = networkInfo()
+        val traffic = todayTraffic()
+        val unsupported = mutableListOf<String>()
+        if (traffic.first == null) unsupported.add("wifi_daily_traffic_requires_network_stats_access")
+        if (traffic.second == null) unsupported.add("mobile_daily_traffic_requires_network_stats_access")
+
+        return JSONObject()
+            .put("platform", "android")
+            .put("capturedAt", isoNow())
+            .putNullable("wifiBytesToday", traffic.first)
+            .putNullable("mobileBytesToday", traffic.second)
+            .putNullable("networkSpeedKbps", network.speedKbps)
+            .putNullable("networkType", network.type)
+            .putNullable("networkName", network.name)
+            .putNullable("bluetoothState", bluetoothState())
+            .putNullable("volumePercent", volume)
+            .putNullable("batteryPercent", batteryPercent)
+            .put(
+                "batteryCharging",
+                status == BatteryManager.BATTERY_STATUS_CHARGING ||
+                    status == BatteryManager.BATTERY_STATUS_FULL
+            )
+            .put("model", "${Build.MANUFACTURER} ${Build.MODEL}")
+            .put("osVersion", "Android ${Build.VERSION.RELEASE}")
+            .put("storageUsedBytes", totalBytes - availableBytes)
+            .put("storageTotalBytes", totalBytes)
+            .put("unsupported", JSONArray(unsupported))
+    }
+
+    private fun networkInfo(): NetworkInfo {
+        val connectivity = getSystemService(ConnectivityManager::class.java)
+        val capabilities = connectivity.getNetworkCapabilities(connectivity.activeNetwork)
+            ?: return NetworkInfo("offline", null, null)
+        val type = when {
+            capabilities.hasTransport(NetworkCapabilities.TRANSPORT_WIFI) -> "wifi"
+            capabilities.hasTransport(NetworkCapabilities.TRANSPORT_CELLULAR) -> "cellular"
+            capabilities.hasTransport(NetworkCapabilities.TRANSPORT_BLUETOOTH) -> "bluetooth"
+            capabilities.hasTransport(NetworkCapabilities.TRANSPORT_ETHERNET) -> "ethernet"
+            else -> "unknown"
+        }
+        val name = if (type == "wifi") wifiNetworkName() else null
+        return NetworkInfo(type, name, capabilities.linkDownstreamBandwidthKbps)
+    }
+
+    private fun wifiNetworkName(): String {
+        if (checkSelfPermission(Manifest.permission.ACCESS_FINE_LOCATION) != PackageManager.PERMISSION_GRANTED) {
+            return "unauthorized"
+        }
+        val wifi = applicationContext.getSystemService(WifiManager::class.java) ?: return "unsupported"
+        val ssid = wifi.connectionInfo?.ssid
+            ?.trim()
+            ?.trim('"')
+            ?.takeIf { it.isNotEmpty() && it != "<unknown ssid>" && !it.startsWith("0x") }
+        return ssid ?: "unknown"
+    }
+
+    private fun bluetoothState(): String {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S &&
+            checkSelfPermission(Manifest.permission.BLUETOOTH_CONNECT) != PackageManager.PERMISSION_GRANTED
+        ) {
+            return "unauthorized"
+        }
+        return runCatching {
+            val adapter = BluetoothAdapter.getDefaultAdapter() ?: return "unsupported"
+            if (adapter.isEnabled) "on" else "off"
+        }.getOrDefault("unknown")
+    }
+
+    private fun todayTraffic(): Pair<Long?, Long?> {
+        val fallbackTotal = TrafficStats.getTotalRxBytes() + TrafficStats.getTotalTxBytes()
+        val stats = getSystemService(NetworkStatsManager::class.java)
+            ?: return Pair(fallbackTotal.takeIf { it >= 0 }, null)
+        val start = LocalDate.now().atStartOfDay(ZoneId.systemDefault()).toInstant().toEpochMilli()
+        val end = System.currentTimeMillis()
+        val wifi = runCatching {
+            stats.querySummaryForDevice(ConnectivityManager.TYPE_WIFI, "", start, end).totalBytes()
+        }.getOrNull()
+        val mobile = runCatching {
+            stats.querySummaryForDevice(ConnectivityManager.TYPE_MOBILE, "", start, end).totalBytes()
+        }.getOrNull()
+        if (wifi == null && mobile == null) {
+            return Pair(fallbackTotal.takeIf { it >= 0 }, null)
+        }
+        return Pair(wifi, mobile)
+    }
+
+    private fun NetworkStats.Bucket.totalBytes(): Long = rxBytes + txBytes
+
+    private fun JSONObject.putNullable(name: String, value: Any?): JSONObject {
+        put(name, value ?: JSONObject.NULL)
+        return this
     }
 
     private fun locationJson(): JSONObject {
@@ -234,12 +382,13 @@ class TelemetryForegroundService : Service() {
         if (location == null) {
             return locationStatusJson("unavailable")
         }
+        val coordinate = location.toAmapCoordinate()
         return JSONObject()
             .put("platform", "android")
             .put("capturedAt", isoFromMillis(location.time))
             .put("status", "available")
-            .put("latitude", location.latitude)
-            .put("longitude", location.longitude)
+            .put("latitude", coordinate.latitude)
+            .put("longitude", coordinate.longitude)
             .put("accuracyMeters", if (location.hasAccuracy()) location.accuracy.toDouble() else JSONObject.NULL)
     }
 
@@ -377,5 +526,6 @@ class TelemetryForegroundService : Service() {
     companion object {
         private const val LOCATION_UPDATE_INTERVAL_MS = 15_000L
         private const val LOCATION_UPLOAD_INTERVAL_MS = 30_000L
+        private const val DEVICE_SNAPSHOT_UPLOAD_INTERVAL_MS = 5 * 60_000L
     }
 }
