@@ -1,4 +1,4 @@
-import postgres from "postgres";
+import postgres from "npm:postgres@3.4.5";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -23,6 +23,9 @@ const decoder = new TextDecoder();
 const ownAndroidPackageName = "com.mutualwatch.mutual_watch";
 const maxAppUsageSessionMs = 4 * 60 * 60 * 1000;
 const maxDailyUsageMs = 24 * 60 * 60 * 1000;
+const maxAvatarBytes = 3 * 1024 * 1024;
+const allowedAvatarTypes = new Set(["image/jpeg", "image/png", "image/webp"]);
+const allowedGenders = new Set(["male", "female", "other", "unspecified"]);
 
 class HttpError extends Error {
   constructor(
@@ -107,6 +110,9 @@ async function handleRequest(request: Request): Promise<Response> {
   }
   if (method === "POST" && route === "/sharing/pause") {
     return setSharingPaused(String(user.id), await readJson(request));
+  }
+  if (method === "POST" && route === "/account/profile") {
+    return updateProfile(user, request);
   }
   if (method === "POST" && route === "/account/delete-data") {
     return deleteUserTelemetry(String(user.id));
@@ -535,6 +541,125 @@ async function setSharingPaused(userId: string, body: Record<string, unknown>): 
   return json({ user: publicUser(user) }, 201);
 }
 
+async function updateProfile(user: DbUser, request: Request): Promise<Response> {
+  const userId = String(user.id);
+  const input = await profileInput(userId, request);
+  const [updated] = await sql`
+    update mutual_watch.users
+    set display_name = ${input.displayName},
+        mood_status = ${input.moodStatus},
+        gender = ${input.gender},
+        avatar_url = coalesce(${input.avatarUrl}, avatar_url),
+        updated_at = now()
+    where id = ${userId}
+    returning *
+  `;
+  await addConsent(sql, userId, "profile_updated");
+  return json({ user: publicUser(updated) }, 201);
+}
+
+async function profileInput(
+  userId: string,
+  request: Request
+): Promise<{ displayName: string; moodStatus: string | null; gender: string; avatarUrl: string | null }> {
+  const contentType = request.headers.get("content-type")?.toLowerCase() ?? "";
+  if (contentType.includes("multipart/form-data")) {
+    const form = await request.formData();
+    const avatar = form.get("avatar");
+    return normalizeProfileInput({
+      displayName: textValue(form.get("displayName")),
+      moodStatus: textValue(form.get("moodStatus")),
+      gender: textValue(form.get("gender")),
+      avatarUrl: avatar instanceof File ? await uploadAvatar(userId, avatar) : null
+    });
+  }
+
+  const body = await readJson(request);
+  return normalizeProfileInput({
+    displayName: stringValue(body.displayName),
+    moodStatus: stringValue(body.moodStatus),
+    gender: stringValue(body.gender),
+    avatarUrl: null
+  });
+}
+
+function normalizeProfileInput(input: {
+  displayName: string;
+  moodStatus: string;
+  gender: string;
+  avatarUrl: string | null;
+}): { displayName: string; moodStatus: string | null; gender: string; avatarUrl: string | null } {
+  const displayName = input.displayName.trim();
+  const moodStatus = input.moodStatus.trim();
+  const gender = input.gender.trim() || "unspecified";
+
+  if (!displayName || displayName.length > 40) {
+    throw new HttpError(400, "Display name is required and must be at most 40 characters.");
+  }
+  if (moodStatus.length > 20) {
+    throw new HttpError(400, "Mood status must be at most 20 characters.");
+  }
+  if (!allowedGenders.has(gender)) {
+    throw new HttpError(400, "Gender is invalid.");
+  }
+
+  return {
+    displayName,
+    moodStatus: moodStatus || null,
+    gender,
+    avatarUrl: input.avatarUrl
+  };
+}
+
+async function uploadAvatar(userId: string, avatar: File): Promise<string> {
+  if (!allowedAvatarTypes.has(avatar.type)) {
+    throw new HttpError(400, "Avatar must be a JPG, PNG, or WebP image.");
+  }
+  if (avatar.size <= 0 || avatar.size > maxAvatarBytes) {
+    throw new HttpError(400, "Avatar must be 3MB or smaller.");
+  }
+
+  const supabaseUrl = Deno.env.get("SUPABASE_URL")?.trim();
+  const secretKey = serviceKey();
+  if (!supabaseUrl || !secretKey) {
+    throw new HttpError(503, "Avatar storage is not configured.");
+  }
+
+  const bucket = Deno.env.get("PROFILE_AVATAR_BUCKET")?.trim() || "profile-avatars";
+  const extension = avatarExtension(avatar.type);
+  const random = crypto.getRandomValues(new Uint32Array(1))[0].toString(16);
+  const objectPath = `${userId}/${Date.now()}-${random}.${extension}`;
+  const uploadUrl = `${supabaseUrl}/storage/v1/object/${bucket}/${objectPath}`;
+  const headers: Record<string, string> = {
+    apikey: secretKey,
+    "content-type": avatar.type,
+    "cache-control": "3600",
+    "x-upsert": "false"
+  };
+  if (!secretKey.startsWith("sb_secret_")) {
+    headers.authorization = `Bearer ${secretKey}`;
+  }
+
+  const uploadResponse = await fetch(uploadUrl, {
+    method: "POST",
+    headers,
+    body: avatar
+  });
+  if (!uploadResponse.ok) {
+    const message = await uploadResponse.text();
+    throw new HttpError(502, `Avatar upload failed: ${message || uploadResponse.statusText}`);
+  }
+
+  const publicPath = objectPath.split("/").map(encodeURIComponent).join("/");
+  return `${supabaseUrl}/storage/v1/object/public/${bucket}/${publicPath}`;
+}
+
+function avatarExtension(contentType: string): "jpg" | "png" | "webp" {
+  if (contentType === "image/png") return "png";
+  if (contentType === "image/webp") return "webp";
+  return "jpg";
+}
+
 async function deleteUserTelemetry(userId: string): Promise<Response> {
   await sql.begin(async (tx) => {
     await tx`delete from mutual_watch.device_snapshots where user_id = ${userId}`;
@@ -721,6 +846,15 @@ function secretValue(): string {
   throw new Error("No JWT secret is available.");
 }
 
+function serviceKey(): string {
+  const secretKeys = Deno.env.get("SUPABASE_SECRET_KEYS");
+  if (secretKeys) {
+    const parsed = JSON.parse(secretKeys) as Record<string, string>;
+    if (parsed.default) return parsed.default;
+  }
+  return Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")?.trim() ?? "";
+}
+
 function routePath(request: Request): string {
   const pathname = new URL(request.url).pathname.replace(/\/+$/, "") || "/";
   return pathname.replace(/^\/api(?=\/|$)/, "") || "/";
@@ -748,6 +882,9 @@ function publicUser(row: DbUser): Record<string, unknown> {
   return {
     id: row.id,
     displayName: row.display_name,
+    avatarUrl: row.avatar_url ?? undefined,
+    moodStatus: row.mood_status ?? undefined,
+    gender: row.gender ?? "unspecified",
     phone: row.phone ?? undefined,
     sharingPaused: Boolean(row.sharing_paused),
     createdAt: iso(row.created_at)
@@ -961,6 +1098,10 @@ function dateOnly(value: unknown): string {
 
 function stringValue(value: unknown): string {
   return typeof value === "string" ? value : "";
+}
+
+function textValue(value: FormDataEntryValue | null): string {
+  return typeof value === "string" ? value.trim() : "";
 }
 
 function nullableString(value: unknown): string | null {

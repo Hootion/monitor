@@ -9,6 +9,7 @@ import 'package:flutter/foundation.dart' show Factory;
 import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:image_picker/image_picker.dart';
 
 import 'app_state.dart';
 import 'models.dart';
@@ -1007,7 +1008,7 @@ class DashboardTab extends StatelessWidget {
         ],
         if (state.partner == null) ...[
           LoveDashboardHeader(
-            partnerName: null,
+            userName: state.user?.displayName,
             syncing: state.syncing,
             lastUpdatedAt: state.lastRefreshedAt ?? state.lastSyncedAt,
             onRefresh: refreshDashboard,
@@ -1036,7 +1037,7 @@ class DashboardTab extends StatelessWidget {
             const SizedBox(height: 12),
           ],
           LoveDashboardHeader(
-            partnerName: state.partner!.displayName,
+            userName: state.user?.displayName,
             syncing: state.syncing,
             lastUpdatedAt: state.lastRefreshedAt ?? state.lastSyncedAt,
             onRefresh: refreshDashboard,
@@ -1248,13 +1249,13 @@ class _BindingGuideStep {
 class LoveDashboardHeader extends StatelessWidget {
   const LoveDashboardHeader({
     required this.onRefresh,
-    this.partnerName,
+    this.userName,
     this.lastUpdatedAt,
     this.syncing = false,
     super.key,
   });
 
-  final String? partnerName;
+  final String? userName;
   final DateTime? lastUpdatedAt;
   final bool syncing;
   final Future<void> Function() onRefresh;
@@ -1271,7 +1272,7 @@ class LoveDashboardHeader extends StatelessWidget {
             : hour < 18
                 ? '下午好'
                 : '晚上好';
-    final name = partnerName?.trim().isNotEmpty == true ? partnerName! : '宝贝';
+    final name = userName?.trim().isNotEmpty == true ? userName! : '宝贝';
     final subtitle = syncing
         ? '正在同步你们的小小近况'
         : lastUpdatedAt == null
@@ -1365,12 +1366,16 @@ class LoveAvatarPair extends StatelessWidget {
     required this.userName,
     required this.partnerName,
     required this.size,
+    this.userAvatarUrl,
+    this.partnerAvatarUrl,
     super.key,
   });
 
   final String userName;
   final String partnerName;
   final double size;
+  final String? userAvatarUrl;
+  final String? partnerAvatarUrl;
 
   @override
   Widget build(BuildContext context) {
@@ -1387,6 +1392,7 @@ class LoveAvatarPair extends StatelessWidget {
             top: 0,
             child: LoveInitialAvatar(
               name: userName,
+              avatarUrl: userAvatarUrl,
               radius: radius,
               background: colors.primaryContainer,
               foreground: colors.primary,
@@ -1397,6 +1403,7 @@ class LoveAvatarPair extends StatelessWidget {
             top: 0,
             child: LoveInitialAvatar(
               name: partnerName,
+              avatarUrl: partnerAvatarUrl,
               radius: radius,
               background: colors.secondaryContainer,
               foreground: colors.secondary,
@@ -1439,10 +1446,12 @@ class LoveInitialAvatar extends StatelessWidget {
     required this.radius,
     required this.background,
     required this.foreground,
+    this.avatarUrl,
     super.key,
   });
 
   final String name;
+  final String? avatarUrl;
   final double radius;
   final Color background;
   final Color foreground;
@@ -1465,14 +1474,74 @@ class LoveInitialAvatar extends StatelessWidget {
       child: CircleAvatar(
         radius: radius,
         backgroundColor: background,
-        child: Text(
-          appInitial(name),
-          style: Theme.of(context).textTheme.headlineSmall?.copyWith(
-                color: foreground,
-                fontWeight: FontWeight.w900,
+        backgroundImage: avatarUrl?.trim().isNotEmpty == true
+            ? NetworkImage(avatarUrl!)
+            : null,
+        child: avatarUrl?.trim().isNotEmpty == true
+            ? null
+            : Text(
+                appInitial(name),
+                style: Theme.of(context).textTheme.headlineSmall?.copyWith(
+                      color: foreground,
+                      fontWeight: FontWeight.w900,
+                    ),
               ),
-        ),
       ),
+    );
+  }
+}
+
+class ProfileAvatar extends StatelessWidget {
+  const ProfileAvatar({
+    required this.name,
+    this.avatarUrl,
+    this.radius = 24,
+    this.showEditBadge = false,
+    super.key,
+  });
+
+  final String name;
+  final String? avatarUrl;
+  final double radius;
+  final bool showEditBadge;
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = Theme.of(context).colorScheme;
+    final hasAvatar = avatarUrl?.trim().isNotEmpty == true;
+    final avatar = CircleAvatar(
+      radius: radius,
+      backgroundColor: colors.primaryContainer,
+      foregroundColor: colors.onPrimaryContainer,
+      backgroundImage: hasAvatar ? NetworkImage(avatarUrl!) : null,
+      child: hasAvatar ? null : Text(appInitial(name)),
+    );
+    if (!showEditBadge) {
+      return avatar;
+    }
+    return Stack(
+      clipBehavior: Clip.none,
+      children: [
+        avatar,
+        Positioned(
+          right: -2,
+          bottom: -2,
+          child: Container(
+            width: 22,
+            height: 22,
+            decoration: BoxDecoration(
+              color: colors.primary,
+              shape: BoxShape.circle,
+              border: Border.all(color: colors.surface, width: 2),
+            ),
+            child: Icon(
+              Icons.photo_camera_rounded,
+              size: 12,
+              color: colors.onPrimary,
+            ),
+          ),
+        ),
+      ],
     );
   }
 }
@@ -1716,6 +1785,8 @@ class LoveOverviewHeroCard extends StatelessWidget {
                   LoveAvatarPair(
                     userName: user?.displayName ?? '我',
                     partnerName: partner.displayName,
+                    userAvatarUrl: user?.avatarUrl,
+                    partnerAvatarUrl: partner.avatarUrl,
                     size: avatarSize,
                   ),
                   const SizedBox(width: 14),
@@ -1724,7 +1795,10 @@ class LoveOverviewHeroCard extends StatelessWidget {
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
                         Text(
-                          partner.displayName,
+                          relationshipDisplayName(
+                            user?.displayName,
+                            partner.displayName,
+                          ),
                           maxLines: 1,
                           overflow: TextOverflow.ellipsis,
                           style: theme.textTheme.headlineSmall?.copyWith(
@@ -1823,37 +1897,6 @@ class LoveOverviewHeroCard extends StatelessWidget {
                           SizedBox(width: 220, child: batteryPanel),
                         ],
                       ),
-              ),
-              Padding(
-                padding: const EdgeInsets.fromLTRB(18, 14, 18, 18),
-                child: Row(
-                  children: const [
-                    Expanded(
-                      child: LovePromiseItem(
-                        icon: Icons.favorite_rounded,
-                        title: '双向同意',
-                        subtitle: '彼此信任',
-                        emphasize: true,
-                      ),
-                    ),
-                    LovePromiseDivider(),
-                    Expanded(
-                      child: LovePromiseItem(
-                        icon: Icons.pause_circle_rounded,
-                        title: '可随时暂停',
-                        subtitle: '尊重选择',
-                      ),
-                    ),
-                    LovePromiseDivider(),
-                    Expanded(
-                      child: LovePromiseItem(
-                        icon: Icons.lock_rounded,
-                        title: '不看隐私内容',
-                        subtitle: '只看状态',
-                      ),
-                    ),
-                  ],
-                ),
               ),
             ],
           );
@@ -3318,9 +3361,16 @@ class MyTab extends StatefulWidget {
 
 class _MyTabState extends State<MyTab> {
   bool showingSettings = false;
+  bool showingProfileEditor = false;
 
   @override
   Widget build(BuildContext context) {
+    if (showingProfileEditor) {
+      return EditProfileContent(
+        onBack: () => setState(() => showingProfileEditor = false),
+      );
+    }
+
     if (showingSettings) {
       return SettingsContent(
         onBack: () => setState(() => showingSettings = false),
@@ -3341,6 +3391,7 @@ class _MyTabState extends State<MyTab> {
           partner: state.overview?.partner ?? state.partner,
           lastSyncedAt: state.lastSyncedAt,
           lastRefreshedAt: state.lastRefreshedAt,
+          onEditProfile: () => setState(() => showingProfileEditor = true),
         ),
         const SizedBox(height: 12),
         MySettingsEntryPanel(
@@ -3359,6 +3410,7 @@ class MyProfilePanel extends StatelessWidget {
     required this.partner,
     required this.lastSyncedAt,
     required this.lastRefreshedAt,
+    required this.onEditProfile,
     super.key,
   });
 
@@ -3366,6 +3418,7 @@ class MyProfilePanel extends StatelessWidget {
   final PublicUser? partner;
   final DateTime? lastSyncedAt;
   final DateTime? lastRefreshedAt;
+  final VoidCallback onEditProfile;
 
   @override
   Widget build(BuildContext context) {
@@ -3375,11 +3428,22 @@ class MyProfilePanel extends StatelessWidget {
       padding: const EdgeInsets.all(16),
       child: Row(
         children: [
-          CircleAvatar(
-            radius: 25,
-            backgroundColor: colors.primaryContainer,
-            foregroundColor: colors.onPrimaryContainer,
-            child: Text(appInitial(user.displayName)),
+          Semantics(
+            button: true,
+            label: '编辑个人资料',
+            child: InkWell(
+              customBorder: const CircleBorder(),
+              onTap: onEditProfile,
+              child: Padding(
+                padding: const EdgeInsets.all(2),
+                child: ProfileAvatar(
+                  name: user.displayName,
+                  avatarUrl: user.avatarUrl,
+                  radius: 25,
+                  showEditBadge: true,
+                ),
+              ),
+            ),
           ),
           const SizedBox(width: 12),
           Expanded(
@@ -3432,10 +3496,278 @@ class MySettingsEntryPanel extends StatelessWidget {
       child: ListTile(
         leading: const Icon(Icons.settings_rounded),
         title: const Text('设置'),
-        subtitle: const Text('隐私、权限、数据范围和账号操作'),
+        subtitle: const Text('隐私、权限和账号操作'),
         trailing: const Icon(Icons.chevron_right_rounded),
         onTap: onOpenSettings,
       ),
+    );
+  }
+}
+
+class EditProfileContent extends StatefulWidget {
+  const EditProfileContent({required this.onBack, super.key});
+
+  final VoidCallback onBack;
+
+  @override
+  State<EditProfileContent> createState() => _EditProfileContentState();
+}
+
+class _EditProfileContentState extends State<EditProfileContent> {
+  late TextEditingController nameController;
+  late TextEditingController moodController;
+  String gender = 'unspecified';
+  XFile? selectedAvatar;
+  List<int>? selectedAvatarBytes;
+  bool pickingAvatar = false;
+  bool initialized = false;
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    if (initialized) {
+      return;
+    }
+    final user = AppScope.of(context).user!;
+    nameController = TextEditingController(text: user.displayName);
+    moodController = TextEditingController(text: user.moodStatus ?? '');
+    gender = normalizeGender(user.gender);
+    initialized = true;
+  }
+
+  @override
+  void dispose() {
+    nameController.dispose();
+    moodController.dispose();
+    super.dispose();
+  }
+
+  Future<void> pickAvatar(ImageSource source) async {
+    setState(() => pickingAvatar = true);
+    try {
+      final picker = ImagePicker();
+      final avatar = await picker.pickImage(
+        source: source,
+        maxWidth: 512,
+        maxHeight: 512,
+        imageQuality: 82,
+      );
+      if (avatar == null) {
+        return;
+      }
+      final bytes = await avatar.readAsBytes();
+      if (!mounted) {
+        return;
+      }
+      setState(() {
+        selectedAvatar = avatar;
+        selectedAvatarBytes = bytes;
+      });
+    } finally {
+      if (mounted) {
+        setState(() => pickingAvatar = false);
+      }
+    }
+  }
+
+  Future<void> chooseAvatar() async {
+    final source = await showModalBottomSheet<ImageSource>(
+      context: context,
+      showDragHandle: true,
+      builder: (context) => SafeArea(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            ListTile(
+              leading: const Icon(Icons.photo_library_rounded),
+              title: const Text('从相册选择'),
+              onTap: () => Navigator.of(context).pop(ImageSource.gallery),
+            ),
+            ListTile(
+              leading: const Icon(Icons.photo_camera_rounded),
+              title: const Text('拍照'),
+              onTap: () => Navigator.of(context).pop(ImageSource.camera),
+            ),
+          ],
+        ),
+      ),
+    );
+    if (source != null) {
+      await pickAvatar(source);
+    }
+  }
+
+  Future<void> saveProfile() async {
+    final state = AppScope.of(context);
+    final name = nameController.text.trim();
+    final mood = moodController.text.trim();
+    if (name.isEmpty) {
+      showAppSnackBar(context, '请输入用户名');
+      return;
+    }
+    if (name.length > 40) {
+      showAppSnackBar(context, '用户名最多 40 个字');
+      return;
+    }
+    if (mood.length > 20) {
+      showAppSnackBar(context, '今日心情最多 20 个字');
+      return;
+    }
+    await state.updateProfile(
+      displayName: name,
+      moodStatus: mood.isEmpty ? null : mood,
+      gender: gender,
+      avatarBytes: selectedAvatarBytes,
+      avatarFileName: selectedAvatar?.name,
+      avatarMimeType: avatarMimeType(selectedAvatar),
+    );
+    if (!mounted || state.error != null) {
+      return;
+    }
+    showAppSnackBar(context, '个人资料已保存');
+    widget.onBack();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final state = AppScope.of(context);
+    final user = state.user!;
+    final colors = Theme.of(context).colorScheme;
+    final avatarBytes = selectedAvatarBytes;
+
+    final avatar = CircleAvatar(
+      radius: 42,
+      backgroundColor: colors.primaryContainer,
+      foregroundColor: colors.onPrimaryContainer,
+      backgroundImage: avatarBytes != null
+          ? MemoryImage(Uint8List.fromList(avatarBytes))
+          : user.avatarUrl?.trim().isNotEmpty == true
+              ? NetworkImage(user.avatarUrl!) as ImageProvider
+              : null,
+      child: avatarBytes == null && user.avatarUrl?.trim().isNotEmpty != true
+          ? Text(
+              appInitial(nameController.text),
+              style: Theme.of(context)
+                  .textTheme
+                  .headlineSmall
+                  ?.copyWith(fontWeight: FontWeight.w900),
+            )
+          : null,
+    );
+
+    return AdaptiveListPage(
+      children: [
+        Row(
+          children: [
+            IconButton.filledTonal(
+              tooltip: '返回我的',
+              onPressed: widget.onBack,
+              icon: const Icon(Icons.arrow_back_rounded),
+            ),
+            const SizedBox(width: 10),
+            const Expanded(
+              child: SectionHeader(
+                title: '编辑资料',
+                subtitle: '头像、用户名和今日状态',
+                dense: true,
+              ),
+            ),
+          ],
+        ),
+        const SizedBox(height: 12),
+        if (state.error != null) ...[
+          ErrorBanner(message: state.error!, onDismiss: state.clearError),
+          const SizedBox(height: 12),
+        ],
+        SurfacePanel(
+          padding: const EdgeInsets.all(16),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              Center(
+                child: InkWell(
+                  customBorder: const CircleBorder(),
+                  onTap: pickingAvatar ? null : chooseAvatar,
+                  child: Stack(
+                    clipBehavior: Clip.none,
+                    children: [
+                      avatar,
+                      Positioned(
+                        right: 0,
+                        bottom: 0,
+                        child: CircleAvatar(
+                          radius: 15,
+                          backgroundColor: colors.primary,
+                          foregroundColor: colors.onPrimary,
+                          child: pickingAvatar
+                              ? SizedBox.square(
+                                  dimension: 14,
+                                  child: CircularProgressIndicator(
+                                    strokeWidth: 2,
+                                    color: colors.onPrimary,
+                                  ),
+                                )
+                              : const Icon(Icons.photo_camera_rounded, size: 16),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+              const SizedBox(height: 18),
+              TextField(
+                controller: nameController,
+                maxLength: 40,
+                decoration: const InputDecoration(
+                  prefixIcon: Icon(Icons.person_rounded),
+                  labelText: '用户名',
+                ),
+              ),
+              const SizedBox(height: 10),
+              TextField(
+                controller: moodController,
+                maxLength: 20,
+                decoration: const InputDecoration(
+                  prefixIcon: Icon(Icons.favorite_border_rounded),
+                  labelText: '今日心情状态',
+                  hintText: '例如：想你、忙碌、开心',
+                ),
+              ),
+              const SizedBox(height: 10),
+              Text(
+                '性别',
+                style: Theme.of(context)
+                    .textTheme
+                    .labelLarge
+                    ?.copyWith(fontWeight: FontWeight.w800),
+              ),
+              const SizedBox(height: 8),
+              SegmentedButton<String>(
+                segments: const [
+                  ButtonSegment(value: 'unspecified', label: Text('不设置')),
+                  ButtonSegment(value: 'female', label: Text('女')),
+                  ButtonSegment(value: 'male', label: Text('男')),
+                  ButtonSegment(value: 'other', label: Text('其他')),
+                ],
+                selected: {gender},
+                onSelectionChanged: (value) =>
+                    setState(() => gender = value.single),
+              ),
+              const SizedBox(height: 16),
+              FilledButton.icon(
+                onPressed: state.loading ? null : saveProfile,
+                icon: state.loading
+                    ? const SizedBox.square(
+                        dimension: 18,
+                        child: CircularProgressIndicator(strokeWidth: 2),
+                      )
+                    : const Icon(Icons.save_rounded),
+                label: const Text('保存'),
+              ),
+            ],
+          ),
+        ),
+      ],
     );
   }
 }
@@ -3471,11 +3803,10 @@ class BoundRelationshipPanel extends StatelessWidget {
           const SizedBox(height: 14),
           Row(
             children: [
-              CircleAvatar(
+              ProfileAvatar(
+                name: partner.displayName,
+                avatarUrl: partner.avatarUrl,
                 radius: 24,
-                backgroundColor: colors.tertiaryContainer,
-                foregroundColor: colors.onTertiaryContainer,
-                child: Text(appInitial(partner.displayName)),
               ),
               const SizedBox(width: 12),
               Expanded(
@@ -3825,20 +4156,156 @@ class _AppUsageTabState extends State<AppUsageTab> {
               ),
             ),
         ] else
-          EmptyPanel(
-            icon: Icons.apps_outage_rounded,
-            title: '暂无应用记录',
-            subtitle: platform.toLowerCase() == 'ios'
-                ? 'iOS 会显示系统允许共享的轻量状态。'
-                : 'Android 授权后会显示应用明细。',
-            action: platform.toLowerCase() == 'android'
-                ? TextButton.icon(
-                    onPressed: state.openUsageAccessSettings,
-                    icon: const Icon(Icons.settings_rounded),
-                    label: const Text('打开授权设置'),
-                  )
-                : null,
+          AppUsageEmptyStatePanel(state: state, platform: platform),
+      ],
+    );
+  }
+}
+
+class AppUsageEmptyStatePanel extends StatelessWidget {
+  const AppUsageEmptyStatePanel({
+    required this.state,
+    required this.platform,
+    super.key,
+  });
+
+  final AppState state;
+  final String platform;
+
+  @override
+  Widget build(BuildContext context) {
+    final partner = state.overview?.partner ?? state.partner;
+    final report = state.overview?.dailyReport;
+    final unsupported = report?.unsupported ?? const <String>[];
+    final isIOS = platform.toLowerCase() == 'ios';
+    final partnerNeedsUsageAccess =
+        unsupported.contains('usage_access_not_granted');
+    final title = partner == null
+        ? '还没有绑定对象'
+        : partnerNeedsUsageAccess
+            ? '等待对方开启应用使用权限'
+            : report == null
+                ? '等待对方同步应用明细'
+                : '今日暂无应用记录';
+    final subtitle = partner == null
+        ? '绑定后，这里会显示对方允许共享的今日应用情况。'
+        : isIOS
+            ? 'iOS 会按系统开放能力展示轻量状态，不读取详细应用明细。'
+            : partnerNeedsUsageAccess
+                ? '这是对方手机的授权状态；本机授权不会直接改变对方数据。'
+                : '对方授权并同步后，会显示应用、时长和打开次数。';
+    final rows = [
+      _UsageDiagnosticRowData(
+        Icons.favorite_rounded,
+        '绑定对象',
+        partner?.displayName ?? '未绑定',
+      ),
+      _UsageDiagnosticRowData(
+        Icons.sync_rounded,
+        '最近刷新',
+        state.lastRefreshedAt == null
+            ? '尚未刷新'
+            : formatRelativeDate(state.lastRefreshedAt!),
+      ),
+      _UsageDiagnosticRowData(
+        Icons.query_stats_rounded,
+        '对方应用权限',
+        isIOS
+            ? '系统限制'
+            : partnerNeedsUsageAccess
+                ? '需要对方开启'
+                : report == null
+                    ? '等待报告'
+                    : '未发现限制',
+      ),
+      _UsageDiagnosticRowData(
+        Icons.phone_android_rounded,
+        '本机授权',
+        state.usageAccessGranted ? '已开启' : '需要开启',
+      ),
+    ];
+
+    return SurfacePanel(
+      padding: const EdgeInsets.all(16),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          SectionHeader(title: title, subtitle: subtitle, dense: true),
+          const SizedBox(height: 12),
+          for (var index = 0; index < rows.length; index++) ...[
+            _UsageDiagnosticRow(data: rows[index]),
+            if (index != rows.length - 1)
+              Divider(
+                height: 18,
+                color: Theme.of(context).colorScheme.outlineVariant,
+              ),
+          ],
+          const SizedBox(height: 14),
+          Wrap(
+            spacing: 8,
+            runSpacing: 8,
+            children: [
+              FilledButton.icon(
+                onPressed: state.refreshPartner,
+                icon: const Icon(Icons.refresh_rounded),
+                label: const Text('刷新'),
+              ),
+              if (!isIOS)
+                TextButton.icon(
+                  onPressed: state.openUsageAccessSettings,
+                  icon: const Icon(Icons.settings_rounded),
+                  label: const Text('本机授权设置'),
+                ),
+            ],
           ),
+        ],
+      ),
+    );
+  }
+}
+
+class _UsageDiagnosticRowData {
+  const _UsageDiagnosticRowData(this.icon, this.label, this.value);
+
+  final IconData icon;
+  final String label;
+  final String value;
+}
+
+class _UsageDiagnosticRow extends StatelessWidget {
+  const _UsageDiagnosticRow({required this.data});
+
+  final _UsageDiagnosticRowData data;
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = Theme.of(context).colorScheme;
+    return Row(
+      children: [
+        Icon(data.icon, size: 20, color: colors.primary),
+        const SizedBox(width: 10),
+        Expanded(
+          child: Text(
+            data.label,
+            style: Theme.of(context)
+                .textTheme
+                .bodyMedium
+                ?.copyWith(fontWeight: FontWeight.w700),
+          ),
+        ),
+        const SizedBox(width: 10),
+        Flexible(
+          child: Text(
+            data.value,
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            textAlign: TextAlign.end,
+            style: Theme.of(context)
+                .textTheme
+                .bodyMedium
+                ?.copyWith(color: colors.onSurfaceVariant),
+          ),
+        ),
       ],
     );
   }
@@ -4061,10 +4528,18 @@ class PrivacyTab extends StatelessWidget {
   Widget build(BuildContext context) => const SettingsContent();
 }
 
-class SettingsContent extends StatelessWidget {
+class SettingsContent extends StatefulWidget {
   const SettingsContent({this.onBack, super.key});
 
   final VoidCallback? onBack;
+
+  @override
+  State<SettingsContent> createState() => _SettingsContentState();
+}
+
+class _SettingsContentState extends State<SettingsContent> {
+  bool privacyExpanded = false;
+  bool permissionsExpanded = false;
 
   @override
   Widget build(BuildContext context) {
@@ -4077,15 +4552,29 @@ class SettingsContent extends StatelessWidget {
 
     return AdaptiveListPage(
       children: [
-        if (onBack != null) ...[
-          SectionHeader(
+        if (widget.onBack != null) ...[
+          Row(
+            children: [
+              IconButton.filledTonal(
+                tooltip: '返回我的',
+                onPressed: widget.onBack,
+                icon: const Icon(Icons.arrow_back_rounded),
+              ),
+              const SizedBox(width: 10),
+              Expanded(
+                child: SectionHeader(
+                  title: '设置',
+                  subtitle: '隐私、权限和账号操作',
+                  dense: true,
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 12),
+        ] else ...[
+          const SectionHeader(
             title: '设置',
             subtitle: '隐私、权限和账号操作',
-            trailing: IconButton.filledTonal(
-              tooltip: '返回我的',
-              onPressed: onBack,
-              icon: const Icon(Icons.arrow_back_rounded),
-            ),
           ),
           const SizedBox(height: 12),
         ],
@@ -4102,7 +4591,9 @@ class SettingsContent extends StatelessWidget {
           },
         ),
         const SizedBox(height: 12),
-        PrivacyStatusPanel(
+        CollapsiblePrivacyStatusPanel(
+          expanded: privacyExpanded,
+          onChanged: (value) => setState(() => privacyExpanded = value),
           user: user,
           partner: partner,
           platform: platform,
@@ -4111,16 +4602,13 @@ class SettingsContent extends StatelessWidget {
           lastRefreshedAt: state.lastRefreshedAt,
         ),
         const SizedBox(height: 12),
-        PermissionGuidePanel(
+        CollapsiblePermissionGuidePanel(
+          expanded: permissionsExpanded,
+          onChanged: (value) => setState(() => permissionsExpanded = value),
           platform: platform,
           usageAccessGranted: state.usageAccessGranted,
           onOpenUsageSettings: state.openUsageAccessSettings,
           onOpenAppSettings: state.openAppSettings,
-        ),
-        const SizedBox(height: 12),
-        DataScopePanel(
-          platform: platform,
-          usageAccessGranted: state.usageAccessGranted,
         ),
         const SizedBox(height: 12),
         AccountActionsPanel(
@@ -4179,11 +4667,10 @@ class PrivacyAccountPanel extends StatelessWidget {
         children: [
           Row(
             children: [
-              CircleAvatar(
+              ProfileAvatar(
+                name: user.displayName,
+                avatarUrl: user.avatarUrl,
                 radius: 22,
-                backgroundColor: colors.primaryContainer,
-                foregroundColor: colors.onPrimaryContainer,
-                child: Text(appInitial(user.displayName)),
               ),
               const SizedBox(width: 12),
               Expanded(
@@ -4343,6 +4830,178 @@ class PrivacyStatusPanel extends StatelessWidget {
   }
 }
 
+class CollapsiblePrivacyStatusPanel extends StatelessWidget {
+  const CollapsiblePrivacyStatusPanel({
+    required this.expanded,
+    required this.onChanged,
+    required this.user,
+    required this.partner,
+    required this.platform,
+    required this.usageAccessGranted,
+    required this.lastSyncedAt,
+    required this.lastRefreshedAt,
+    super.key,
+  });
+
+  final bool expanded;
+  final ValueChanged<bool> onChanged;
+  final PublicUser user;
+  final PublicUser? partner;
+  final String platform;
+  final bool usageAccessGranted;
+  final DateTime? lastSyncedAt;
+  final DateTime? lastRefreshedAt;
+
+  @override
+  Widget build(BuildContext context) {
+    final items = buildPrivacyStatusItems(
+      user: user,
+      partner: partner,
+      platform: platform,
+      usageAccessGranted: usageAccessGranted,
+      lastSyncedAt: lastSyncedAt,
+      lastRefreshedAt: lastRefreshedAt,
+    );
+    return SurfacePanel(
+      padding: EdgeInsets.zero,
+      child: ExpansionTile(
+        initiallyExpanded: expanded,
+        onExpansionChanged: onChanged,
+        leading: const Icon(Icons.privacy_tip_rounded),
+        title: const Text('隐私状态'),
+        subtitle: Text(user.sharingPaused ? '我的共享已暂停' : '共享中，可展开查看明细'),
+        childrenPadding: const EdgeInsets.fromLTRB(14, 0, 14, 14),
+        children: [
+          Divider(color: Theme.of(context).colorScheme.outlineVariant),
+          for (var index = 0; index < items.length; index++) ...[
+            SummaryMetricCell(item: items[index]),
+            if (index != items.length - 1)
+              Divider(
+                height: 18,
+                color: Theme.of(context).colorScheme.outlineVariant,
+              ),
+          ],
+        ],
+      ),
+    );
+  }
+}
+
+class CollapsiblePermissionGuidePanel extends StatelessWidget {
+  const CollapsiblePermissionGuidePanel({
+    required this.expanded,
+    required this.onChanged,
+    required this.platform,
+    required this.usageAccessGranted,
+    required this.onOpenUsageSettings,
+    required this.onOpenAppSettings,
+    super.key,
+  });
+
+  final bool expanded;
+  final ValueChanged<bool> onChanged;
+  final String platform;
+  final bool usageAccessGranted;
+  final Future<void> Function() onOpenUsageSettings;
+  final Future<void> Function() onOpenAppSettings;
+
+  @override
+  Widget build(BuildContext context) {
+    final items = _permissionGuideItems(
+      platform: platform,
+      usageAccessGranted: usageAccessGranted,
+      onOpenUsageSettings: onOpenUsageSettings,
+      onOpenAppSettings: onOpenAppSettings,
+    );
+    return SurfacePanel(
+      padding: EdgeInsets.zero,
+      child: ExpansionTile(
+        initiallyExpanded: expanded,
+        onExpansionChanged: onChanged,
+        leading: const Icon(Icons.tune_rounded),
+        title: const Text('权限与可用性'),
+        subtitle: Text(usageAccessGranted ? '权限可用，展开管理入口' : '部分权限待开启'),
+        childrenPadding: const EdgeInsets.fromLTRB(14, 0, 14, 14),
+        children: [
+          Divider(color: Theme.of(context).colorScheme.outlineVariant),
+          for (var index = 0; index < items.length; index++) ...[
+            _PermissionGuideRow(item: items[index]),
+            if (index != items.length - 1)
+              Divider(
+                height: 20,
+                color: Theme.of(context).colorScheme.outlineVariant,
+              ),
+          ],
+        ],
+      ),
+    );
+  }
+}
+
+List<_PermissionGuideItem> _permissionGuideItems({
+  required String platform,
+  required bool usageAccessGranted,
+  required Future<void> Function() onOpenUsageSettings,
+  required Future<void> Function() onOpenAppSettings,
+}) {
+  final isIOS = platform.toLowerCase() == 'ios';
+  final usageState = isIOS
+      ? 'iOS 系统范围'
+      : usageAccessGranted
+          ? '已开启'
+          : '需要授权';
+  final usageHelper = isIOS
+      ? 'iOS 端会按系统开放能力展示。'
+      : usageAccessGranted
+          ? '可展示今日应用明细和前台次数。'
+          : '开启后才会展示应用明细、前台次数和打开记录。';
+
+  return [
+    _PermissionGuideItem(
+      icon: isIOS ? Icons.phone_iphone_rounded : Icons.query_stats_rounded,
+      title: '应用使用情况',
+      value: usageState,
+      helper: usageHelper,
+      emphasize: !isIOS && usageAccessGranted,
+      warning: !isIOS && !usageAccessGranted,
+      action: isIOS
+          ? null
+          : TextButton.icon(
+              onPressed: onOpenUsageSettings,
+              icon: const Icon(Icons.settings_rounded),
+              label: Text(usageAccessGranted ? '管理权限' : '打开设置'),
+            ),
+    ),
+    if (!isIOS)
+      _PermissionGuideItem(
+        icon: Icons.location_searching_rounded,
+        title: '实时定位与后台位置',
+        value: AppState.amapAndroidKey.trim().isEmpty ? '缺少高德 Key' : '系统授权控制',
+        helper: '地图和后台持续更新需要位置权限；Android 11+ 通常要在应用设置里允许后台位置。',
+        warning: AppState.amapAndroidKey.trim().isEmpty,
+        action: TextButton.icon(
+          onPressed: onOpenAppSettings,
+          icon: const Icon(Icons.tune_rounded),
+          label: const Text('应用设置'),
+        ),
+      ),
+    _PermissionGuideItem(
+      icon: Icons.bluetooth_rounded,
+      title: '蓝牙权限',
+      value: isIOS ? '系统控制' : '按系统状态显示',
+      helper: isIOS
+          ? 'iOS 蓝牙信息遵循系统授权和后台限制。'
+          : 'Android 12+ 通常需要附近设备/蓝牙权限；拒绝后在系统设置恢复。',
+    ),
+    _PermissionGuideItem(
+      icon: Icons.wifi_rounded,
+      title: '位置与网络名',
+      value: '权限控制',
+      helper: '位置共享和 Wi-Fi SSID 受系统权限限制；无法读取时显示“未授权”或“系统不支持”。',
+    ),
+  ];
+}
+
 class PermissionGuidePanel extends StatelessWidget {
   const PermissionGuidePanel({
     required this.platform,
@@ -4360,61 +5019,12 @@ class PermissionGuidePanel extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final isIOS = platform.toLowerCase() == 'ios';
-    final usageState = isIOS
-        ? 'iOS 系统范围'
-        : usageAccessGranted
-            ? '已开启'
-            : '需要授权';
-    final usageHelper = isIOS
-        ? 'iOS 端会按系统开放能力展示。'
-        : usageAccessGranted
-            ? '可展示今日应用明细和前台次数。'
-            : '开启后才会展示应用明细、前台次数和打开记录。';
-
-    final items = [
-      _PermissionGuideItem(
-        icon: isIOS ? Icons.phone_iphone_rounded : Icons.query_stats_rounded,
-        title: '应用使用情况',
-        value: usageState,
-        helper: usageHelper,
-        emphasize: !isIOS && usageAccessGranted,
-        warning: !isIOS && !usageAccessGranted,
-        action: isIOS
-            ? null
-            : TextButton.icon(
-                onPressed: onOpenUsageSettings,
-                icon: const Icon(Icons.settings_rounded),
-                label: Text(usageAccessGranted ? '管理权限' : '打开设置'),
-              ),
-      ),
-      if (!isIOS)
-        _PermissionGuideItem(
-          icon: Icons.location_searching_rounded,
-          title: '实时定位与后台位置',
-          value: AppState.amapAndroidKey.trim().isEmpty ? '缺少高德 Key' : '系统授权控制',
-          helper: '地图和后台持续更新需要位置权限；Android 11+ 通常要在应用设置里允许后台位置。',
-          warning: AppState.amapAndroidKey.trim().isEmpty,
-          action: TextButton.icon(
-            onPressed: onOpenAppSettings,
-            icon: const Icon(Icons.tune_rounded),
-            label: const Text('应用设置'),
-          ),
-        ),
-      _PermissionGuideItem(
-        icon: Icons.bluetooth_rounded,
-        title: '蓝牙权限',
-        value: isIOS ? '系统控制' : '按系统状态显示',
-        helper: isIOS
-            ? 'iOS 蓝牙信息遵循系统授权和后台限制。'
-            : 'Android 12+ 通常需要附近设备/蓝牙权限；拒绝后在系统设置恢复。',
-      ),
-      _PermissionGuideItem(
-        icon: Icons.wifi_rounded,
-        title: '位置与网络名',
-        value: '权限控制',
-        helper: '位置共享和 Wi-Fi SSID 受系统权限限制；无法读取时显示“未授权”或“系统不支持”。',
-      ),
-    ];
+    final items = _permissionGuideItems(
+      platform: platform,
+      usageAccessGranted: usageAccessGranted,
+      onOpenUsageSettings: onOpenUsageSettings,
+      onOpenAppSettings: onOpenAppSettings,
+    );
 
     return SurfacePanel(
       padding: const EdgeInsets.all(14),
@@ -4423,7 +5033,7 @@ class PermissionGuidePanel extends StatelessWidget {
         children: [
           SectionHeader(
             title: '权限与可用性',
-            subtitle: '先说明限制，再给可操作入口',
+            subtitle: '系统权限和可用状态',
             dense: true,
             trailing: isIOS
                 ? null
@@ -6559,6 +7169,43 @@ String appInitial(String value) {
   final trimmed = value.trim();
   if (trimmed.isEmpty) return '?';
   return trimmed.characters.first.toUpperCase();
+}
+
+String relationshipDisplayName(String? userName, String partnerName) {
+  final mine = userName?.trim();
+  final partner = partnerName.trim();
+  if (mine == null || mine.isEmpty) {
+    return partner.isEmpty ? '我们' : partner;
+  }
+  if (partner.isEmpty) {
+    return mine;
+  }
+  return '$mine&$partner';
+}
+
+String normalizeGender(String value) {
+  return switch (value) {
+    'male' || 'female' || 'other' || 'unspecified' => value,
+    _ => 'unspecified',
+  };
+}
+
+String? avatarMimeType(XFile? avatar) {
+  if (avatar == null) {
+    return null;
+  }
+  final explicit = avatar.mimeType;
+  if (explicit != null && explicit.isNotEmpty) {
+    return explicit;
+  }
+  final lowerName = avatar.name.toLowerCase();
+  if (lowerName.endsWith('.png')) {
+    return 'image/png';
+  }
+  if (lowerName.endsWith('.webp')) {
+    return 'image/webp';
+  }
+  return 'image/jpeg';
 }
 
 List<String> unsupportedItems(

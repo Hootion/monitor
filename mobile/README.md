@@ -9,8 +9,8 @@
 - Android App 已连接公网 HTTPS 后端，不依赖局域网 IP、USB 反向代理或本机 NestJS 后端。
 - API 地址：`https://uovwpzpfdweacfftqptj.supabase.co/functions/v1/api`
 - 更新检查地址：`https://uovwpzpfdweacfftqptj.supabase.co/functions/v1/app-update`
-- 当前线上版本：`0.2.7 (2010)`
-- 当前 APK：`https://uovwpzpfdweacfftqptj.supabase.co/storage/v1/object/public/app-releases/android/mutual-watch-0.2.7-2010.apk`
+- 当前线上版本：`0.2.8 (2011)`
+- 当前 APK：`https://uovwpzpfdweacfftqptj.supabase.co/storage/v1/object/public/app-releases/android/mutual-watch-0.2.8-2011.apk`
 
 ## 主要能力
 
@@ -20,11 +20,12 @@
 - 总览页展示对方状态、地图位置、数据健康度和使用摘要。
 - 应用页聚合应用使用时长和打开次数。
 - 记录页展示最近操作事件。
-- 我的页包含账号状态、设置入口和绑定入口。
-- 设置页包含隐私、权限、数据范围、退出登录和删除数据等操作。
+- 我的页包含账号状态、编辑资料、设置入口和绑定入口。
+- 设置页包含隐私状态、权限与可用性、退出登录和删除数据等操作。
 
-## 0.2.4-0.2.7 关键变化
+## 0.2.4-0.2.8 关键变化
 
+- 0.2.8 修复应用页空状态诊断，新增编辑资料和头像上传，调整总览姓名显示和设置折叠结构。
 - 0.2.7 按第四版重构总览页 UI 结构：沉浸式问候、双头像关系卡、相连状态条、首屏最新动态与横向今日概览。
 - 0.2.6 奠定甜美情侣向视觉主题，采用暖白玫瑰配色、柔和状态标签和底部导航。
 - 地图定位精度提高，并支持手指放大缩小。
@@ -45,12 +46,12 @@ $env:FLUTTER_STORAGE_BASE_URL="https://storage.flutter-io.cn"
 
 flutter pub get
 flutter build apk --release --split-per-abi `
-  --build-name=0.2.7 `
-  --build-number=2010 `
+  --build-name=0.2.8 `
+  --build-number=2011 `
   --dart-define=API_BASE_URL=https://uovwpzpfdweacfftqptj.supabase.co/functions/v1/api `
   --dart-define=APP_UPDATE_URL=https://uovwpzpfdweacfftqptj.supabase.co/functions/v1/app-update `
-  --dart-define=APP_VERSION_CODE=2010 `
-  --dart-define=APP_VERSION_NAME=0.2.7 `
+  --dart-define=APP_VERSION_CODE=2011 `
+  --dart-define=APP_VERSION_NAME=0.2.8 `
   --dart-define=AMAP_ANDROID_KEY=$env:AMAP_ANDROID_KEY
 ```
 
@@ -60,9 +61,9 @@ flutter build apk --release --split-per-abi `
 Set-Location "D:\codex\monitor"
 
 .\scripts\publish_android_update.ps1 `
-  -VersionCode 2010 `
-  -VersionName "0.2.7" `
-  -ReleaseNotes "真正按第四版重构情侣向首页 UI：移动端总览改为沉浸式问候页、双头像关系卡、相连状态条、首屏最新动态与横向今日概览，并保留同步、定位和使用数据能力。"
+  -VersionCode 2011 `
+  -VersionName "0.2.8" `
+  -ReleaseNotes "修复应用页空状态诊断，新增个人资料编辑和头像上传，调整总览姓名显示与设置折叠结构。"
 ```
 
 ## 安装
@@ -96,7 +97,7 @@ com.mutualwatch.mutual_watch
 客户端请求：
 
 ```text
-https://uovwpzpfdweacfftqptj.supabase.co/functions/v1/app-update?platform=android&currentVersionCode=2007
+https://uovwpzpfdweacfftqptj.supabase.co/functions/v1/app-update?platform=android&currentVersionCode=2010
 ```
 
 如果返回 `updateAvailable: true`，App 会弹窗提示下载。Android 安装 APK 仍需要用户在系统界面确认，不能静默安装。
@@ -118,7 +119,7 @@ flutter test
 最近一次验证结果：
 
 - `flutter analyze` 通过。
-- `flutter test` 通过，42 个测试。
+- `flutter test` 通过，47 个测试。
 - `flutter build apk --release --split-per-abi` 通过。
 
 ## 网络错误说明

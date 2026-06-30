@@ -1,6 +1,7 @@
 import 'dart:convert';
 
 import 'package:http/http.dart' as http;
+import 'package:http_parser/http_parser.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import 'models.dart';
@@ -206,6 +207,37 @@ class ApiClient {
     await _request('POST', '/account/delete-data');
   }
 
+  Future<PublicUser> updateProfile({
+    required String displayName,
+    required String gender,
+    String? moodStatus,
+    List<int>? avatarBytes,
+    String? avatarFileName,
+    String? avatarMimeType,
+  }) async {
+    if (avatarBytes == null) {
+      final json = await _request(
+        'POST',
+        '/account/profile',
+        body: {
+          'displayName': displayName,
+          'moodStatus': moodStatus,
+          'gender': gender,
+        },
+      );
+      return PublicUser.fromJson(json['user'] as Map<String, dynamic>);
+    }
+    final json = await _multipartProfileRequest(
+      displayName: displayName,
+      moodStatus: moodStatus,
+      gender: gender,
+      avatarBytes: avatarBytes,
+      avatarFileName: avatarFileName,
+      avatarMimeType: avatarMimeType,
+    );
+    return PublicUser.fromJson(json['user'] as Map<String, dynamic>);
+  }
+
   Future<AppUpdateInfo?> checkForUpdate({
     required int currentVersionCode,
   }) async {
@@ -279,6 +311,61 @@ class ApiClient {
           path,
           body: body,
           auth: auth,
+          refreshOnUnauthorized: false,
+        );
+      }
+    }
+    if (response.statusCode >= 400) {
+      throw ApiException(
+          decoded['message']?.toString() ?? '请求失败', response.statusCode);
+    }
+    return decoded;
+  }
+
+  Future<Map<String, dynamic>> _multipartProfileRequest({
+    required String displayName,
+    required String gender,
+    required List<int> avatarBytes,
+    String? moodStatus,
+    String? avatarFileName,
+    String? avatarMimeType,
+    bool refreshOnUnauthorized = true,
+  }) async {
+    final uri = Uri.parse('$baseUrl/account/profile');
+    final token = accessToken;
+    if (token == null || token.isEmpty) {
+      throw const ApiException('登录已过期，请重新登录。', 401);
+    }
+    final request = http.MultipartRequest('POST', uri)
+      ..headers['Authorization'] = 'Bearer $token'
+      ..fields['displayName'] = displayName
+      ..fields['moodStatus'] = moodStatus ?? ''
+      ..fields['gender'] = gender
+      ..files.add(
+        http.MultipartFile.fromBytes(
+          'avatar',
+          avatarBytes,
+          filename: avatarFileName ?? 'avatar.jpg',
+          contentType: MediaType.parse(avatarMimeType ?? 'image/jpeg'),
+        ),
+      );
+    final response = await _client.send(request);
+    final text = await response.stream.bytesToString();
+    final decoded = text.isEmpty
+        ? <String, dynamic>{}
+        : jsonDecode(text) as Map<String, dynamic>;
+    if (response.statusCode == 401 &&
+        refreshOnUnauthorized &&
+        refreshToken != null) {
+      final refreshed = await refreshSession();
+      if (refreshed) {
+        return _multipartProfileRequest(
+          displayName: displayName,
+          moodStatus: moodStatus,
+          gender: gender,
+          avatarBytes: avatarBytes,
+          avatarFileName: avatarFileName,
+          avatarMimeType: avatarMimeType,
           refreshOnUnauthorized: false,
         );
       }

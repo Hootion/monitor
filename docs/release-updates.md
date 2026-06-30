@@ -6,9 +6,9 @@
 
 ## 当前线上版本
 
-- 版本名：`0.2.7`
-- 版本码：`2010`
-- APK：`https://uovwpzpfdweacfftqptj.supabase.co/storage/v1/object/public/app-releases/android/mutual-watch-0.2.7-2010.apk`
+- 版本名：`0.2.8`
+- 版本码：`2011`
+- APK：`https://uovwpzpfdweacfftqptj.supabase.co/storage/v1/object/public/app-releases/android/mutual-watch-0.2.8-2011.apk`
 - 更新接口：`https://uovwpzpfdweacfftqptj.supabase.co/functions/v1/app-update`
 
 从 `0.2.5` 开始，App 会在启动和回到前台时检查更新，并且检查更新不要求用户已经登录。更旧版本如果停在登录页、登录失效或网络异常，可能不会自动弹出更新框，可以直接使用 APK 链接安装。
@@ -17,7 +17,7 @@
 
 这些准备已经完成，只在重新建项目或迁移环境时需要再做：
 
-1. 应用 Supabase migrations，包含 `202606290005_app_release_storage_bucket.sql`，创建公开下载 bucket：`app-releases`。
+1. 应用 Supabase migrations，包含 `202606290005_app_release_storage_bucket.sql` 和 `202606300001_profile_fields_and_avatar_bucket.sql`，创建公开下载 bucket：`app-releases` 和公开头像 bucket：`profile-avatars`。
 2. 部署 `supabase/functions/app-update`。
 3. 生成发布 token，将 SHA-256 hash 写入 `mutual_watch.app_release_admin_tokens`。
 4. 在本机 `.env.release.local` 保存发布所需变量。该文件被 `.gitignore` 忽略，不应提交。
@@ -41,9 +41,9 @@ AMAP_ANDROID_KEY=...
 Set-Location "D:\codex\monitor"
 
 .\scripts\publish_android_update.ps1 `
-  -VersionCode 2010 `
-  -VersionName "0.2.7" `
-  -ReleaseNotes "真正按第四版重构情侣向首页 UI：移动端总览改为沉浸式问候页、双头像关系卡、相连状态条、首屏最新动态与横向今日概览，并保留同步、定位和使用数据能力。"
+  -VersionCode 2011 `
+  -VersionName "0.2.8" `
+  -ReleaseNotes "修复应用页空状态诊断，新增个人资料编辑和头像上传，调整总览姓名显示与设置折叠结构。"
 ```
 
 脚本会执行：
@@ -61,10 +61,10 @@ Set-Location "D:\codex\monitor"
 
 ```powershell
 .\scripts\publish_android_update.ps1 `
-  -VersionCode 2010 `
-  -VersionName "0.2.7" `
+  -VersionCode 2011 `
+  -VersionName "0.2.8" `
   -SkipBuild `
-  -ReleaseNotes "真正按第四版重构情侣向首页 UI：移动端总览改为沉浸式问候页、双头像关系卡、相连状态条、首屏最新动态与横向今日概览，并保留同步、定位和使用数据能力。"
+  -ReleaseNotes "修复应用页空状态诊断，新增个人资料编辑和头像上传，调整总览姓名显示与设置折叠结构。"
 ```
 
 如果 APK 已经有外部 HTTPS 地址，可以同时传入 `-ApkUrl`。
@@ -74,22 +74,22 @@ Set-Location "D:\codex\monitor"
 检查旧版本是否能看到新版本：
 
 ```powershell
-Invoke-RestMethod -Uri "https://uovwpzpfdweacfftqptj.supabase.co/functions/v1/app-update?platform=android&currentVersionCode=2009"
+Invoke-RestMethod -Uri "https://uovwpzpfdweacfftqptj.supabase.co/functions/v1/app-update?platform=android&currentVersionCode=2010"
 ```
 
 预期返回 `updateAvailable: true`，并包含：
 
 ```json
 {
-  "versionCode": 2010,
-  "versionName": "0.2.7"
+  "versionCode": 2011,
+  "versionName": "0.2.8"
 }
 ```
 
 检查当前版本不会重复提示：
 
 ```powershell
-Invoke-RestMethod -Uri "https://uovwpzpfdweacfftqptj.supabase.co/functions/v1/app-update?platform=android&currentVersionCode=2010"
+Invoke-RestMethod -Uri "https://uovwpzpfdweacfftqptj.supabase.co/functions/v1/app-update?platform=android&currentVersionCode=2011"
 ```
 
 预期：
@@ -101,7 +101,7 @@ Invoke-RestMethod -Uri "https://uovwpzpfdweacfftqptj.supabase.co/functions/v1/ap
 检查 APK 下载：
 
 ```powershell
-curl.exe -I -L "https://uovwpzpfdweacfftqptj.supabase.co/storage/v1/object/public/app-releases/android/mutual-watch-0.2.7-2010.apk"
+curl.exe -I -L "https://uovwpzpfdweacfftqptj.supabase.co/storage/v1/object/public/app-releases/android/mutual-watch-0.2.8-2011.apk"
 ```
 
 预期返回 `HTTP/1.1 200 OK`，`Content-Type: application/vnd.android.package-archive`。
@@ -112,8 +112,8 @@ curl.exe -I -L "https://uovwpzpfdweacfftqptj.supabase.co/storage/v1/object/publi
 
 先确认设备当前安装版本。如果是 `0.2.4` 或更旧版本，旧客户端可能只有进入主界面后才检查更新。处理方式：
 
-1. 直接安装当前 APK：`https://uovwpzpfdweacfftqptj.supabase.co/storage/v1/object/public/app-releases/android/mutual-watch-0.2.7-2010.apk`
-2. 安装到 `0.2.7` 后，后续启动和回到前台都会检查更新。
+1. 直接安装当前 APK：`https://uovwpzpfdweacfftqptj.supabase.co/storage/v1/object/public/app-releases/android/mutual-watch-0.2.8-2011.apk`
+2. 安装到 `0.2.8` 后，后续启动和回到前台都会检查更新。
 
 ### 显示“暂时连接不上服务器”
 

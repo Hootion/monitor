@@ -5,12 +5,18 @@ class PublicUser {
     required this.id,
     required this.displayName,
     required this.sharingPaused,
+    this.avatarUrl,
+    this.moodStatus,
+    this.gender = 'unspecified',
     this.phone,
     this.createdAt,
   });
 
   final String id;
   final String displayName;
+  final String? avatarUrl;
+  final String? moodStatus;
+  final String gender;
   final bool sharingPaused;
   final String? phone;
   final String? createdAt;
@@ -18,6 +24,9 @@ class PublicUser {
   factory PublicUser.fromJson(Map<String, dynamic> json) => PublicUser(
         id: json['id'] as String,
         displayName: json['displayName'] as String? ?? '未命名',
+        avatarUrl: json['avatarUrl'] as String?,
+        moodStatus: json['moodStatus'] as String?,
+        gender: json['gender'] as String? ?? 'unspecified',
         sharingPaused: json['sharingPaused'] as bool? ?? false,
         phone: json['phone'] as String?,
         createdAt: json['createdAt'] as String?,

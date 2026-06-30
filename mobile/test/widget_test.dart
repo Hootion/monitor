@@ -59,6 +59,106 @@ void main() {
     expect(update.required, isTrue);
   });
 
+  test('PublicUser parses optional profile fields', () {
+    final user = PublicUser.fromJson({
+      'id': 'user-1',
+      'displayName': '测试用户',
+      'avatarUrl': 'https://example.com/avatar.webp',
+      'moodStatus': '开心',
+      'gender': 'female',
+      'sharingPaused': false,
+    });
+
+    expect(user.avatarUrl, 'https://example.com/avatar.webp');
+    expect(user.moodStatus, '开心');
+    expect(user.gender, 'female');
+  });
+
+  test('ApiClient.updateProfile sends JSON profile fields', () async {
+    final api = ApiClient(
+      baseUrl: 'https://api.example',
+      client: MockClient((request) async {
+        expect(request.method, 'POST');
+        expect(request.url.path, '/account/profile');
+        expect(request.headers['Authorization'], 'Bearer access-token');
+        final body = jsonDecode(request.body) as Map<String, dynamic>;
+        expect(body['displayName'], '测试用户');
+        expect(body['moodStatus'], '开心');
+        expect(body['gender'], 'female');
+        return http.Response(
+          jsonEncode({
+            'user': {
+              'id': 'user-1',
+              'displayName': '测试用户',
+              'moodStatus': '开心',
+              'gender': 'female',
+              'sharingPaused': false,
+            },
+          }),
+          200,
+          headers: {'content-type': 'application/json'},
+        );
+      }),
+    )..accessToken = 'access-token';
+
+    final user = await api.updateProfile(
+      displayName: '测试用户',
+      moodStatus: '开心',
+      gender: 'female',
+    );
+
+    expect(user.displayName, '测试用户');
+    expect(user.moodStatus, '开心');
+    expect(user.gender, 'female');
+  });
+
+  test('ApiClient.updateProfile uploads avatar as multipart', () async {
+    final api = ApiClient(
+      baseUrl: 'https://api.example',
+      client: MockClient((request) async {
+        expect(request.method, 'POST');
+        expect(request.url.path, '/account/profile');
+        expect(request.headers['Authorization'], 'Bearer access-token');
+        expect(request.headers['content-type'], startsWith('multipart/form-data'));
+        final body = utf8.decode(request.bodyBytes);
+        expect(body, contains('name="displayName"'));
+        expect(body, contains('测试用户'));
+        expect(body, contains('name="moodStatus"'));
+        expect(body, contains('认真'));
+        expect(body, contains('name="gender"'));
+        expect(body, contains('other'));
+        expect(body, contains('name="avatar"'));
+        expect(body, contains('filename="avatar.webp"'));
+        expect(body, contains('content-type: image/webp'));
+        return http.Response(
+          jsonEncode({
+            'user': {
+              'id': 'user-1',
+              'displayName': '测试用户',
+              'avatarUrl': 'https://example.com/avatar.webp',
+              'moodStatus': '认真',
+              'gender': 'other',
+              'sharingPaused': false,
+            },
+          }),
+          200,
+          headers: {'content-type': 'application/json'},
+        );
+      }),
+    )..accessToken = 'access-token';
+
+    final user = await api.updateProfile(
+      displayName: '测试用户',
+      moodStatus: '认真',
+      gender: 'other',
+      avatarBytes: [1, 2, 3, 4],
+      avatarFileName: 'avatar.webp',
+      avatarMimeType: 'image/webp',
+    );
+
+    expect(user.avatarUrl, 'https://example.com/avatar.webp');
+  });
+
   test('update checks do not require a logged-in session', () async {
     SharedPreferences.setMockInitialValues({});
     final api = ApiClient(
@@ -660,6 +760,43 @@ void main() {
     expect(find.byTooltip('粘贴'), findsNothing);
   });
 
+  testWidgets('My avatar opens edit profile page',
+      (WidgetTester tester) async {
+    tester.view.physicalSize = const Size(390, 844);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+    final state = AppState()
+      ..loading = false
+      ..user = const PublicUser(
+        id: 'user-1',
+        displayName: '测试用户',
+        moodStatus: '开心',
+        gender: 'female',
+        sharingPaused: false,
+      );
+    addTearDown(state.dispose);
+
+    await tester.pumpWidget(
+      AppScope(
+        state: state,
+        child: const MaterialApp(home: HomeShell()),
+      ),
+    );
+
+    await tester.tap(find.text('我的'));
+    await tester.pump(const Duration(milliseconds: 300));
+    await tester.tap(find.byType(ProfileAvatar).first);
+    await tester.pump(const Duration(milliseconds: 300));
+
+    expect(find.text('编辑资料'), findsOneWidget);
+    expect(find.text('用户名'), findsOneWidget);
+    expect(find.text('今日心情状态'), findsOneWidget);
+    expect(find.text('性别'), findsOneWidget);
+    expect(find.text('保存'), findsOneWidget);
+    expect(find.byTooltip('返回我的'), findsOneWidget);
+  });
+
   testWidgets('Invite code card copies code with visible feedback',
       (WidgetTester tester) async {
     final semantics = tester.ensureSemantics();
@@ -733,7 +870,9 @@ void main() {
     await tester.drag(find.byType(ListView), const Offset(0, -760));
     await tester.pump();
 
-    expect(find.text('数据范围'), findsOneWidget);
+    expect(find.text('隐私状态'), findsOneWidget);
+    expect(find.text('权限与可用性'), findsOneWidget);
+    expect(find.text('数据范围'), findsNothing);
   });
 
   testWidgets('Sync action labels the in-progress state',
@@ -881,8 +1020,9 @@ void main() {
     );
 
     expect(tester.takeException(), isNull);
-    expect(find.textContaining('好，Partner'), findsOneWidget);
-    expect(find.text('双向同意'), findsOneWidget);
+    expect(find.textContaining('好，测试用户'), findsOneWidget);
+    expect(find.text('测试用户&Partner'), findsOneWidget);
+    expect(find.text('双向同意'), findsNothing);
     expect(find.text('今日概览'), findsOneWidget);
     expect(find.text('最新动态'), findsOneWidget);
   });
@@ -937,6 +1077,57 @@ void main() {
 
     expect(find.text('先开启使用情况访问'), findsOneWidget);
     expect(find.text('打开授权设置'), findsOneWidget);
+  });
+
+  testWidgets('App usage tab explains empty authorization state',
+      (WidgetTester tester) async {
+    tester.view.physicalSize = const Size(390, 844);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+
+    const partner = PublicUser(
+      id: 'partner-1',
+      displayName: 'Partner',
+      sharingPaused: false,
+    );
+    final state = AppState()
+      ..loading = false
+      ..usageAccessGranted = false
+      ..user = const PublicUser(
+        id: 'user-1',
+        displayName: '测试用户',
+        sharingPaused: false,
+      )
+      ..partner = partner
+      ..overview = const PartnerOverview(
+        partner: partner,
+        dailyReport: DailyUsageReport(
+          date: '2026-06-30',
+          platform: 'android',
+          screenTimeMs: 0,
+          pickupCount: 0,
+          longestContinuousMs: 0,
+          unsupported: ['usage_access_not_granted'],
+        ),
+      );
+    addTearDown(state.dispose);
+
+    await tester.pumpWidget(
+      AppScope(
+        state: state,
+        child: const MaterialApp(home: HomeShell()),
+      ),
+    );
+
+    await tester.tap(find.text('应用'));
+    await tester.pump(const Duration(milliseconds: 300));
+
+    expect(find.text('等待对方开启应用使用权限'), findsOneWidget);
+    expect(find.text('对方应用权限'), findsOneWidget);
+    expect(find.text('需要对方开启'), findsOneWidget);
+    expect(find.text('本机授权设置'), findsOneWidget);
+    expect(find.text('刷新'), findsOneWidget);
   });
 
   testWidgets('App usage tab shows compact usage insights',
@@ -1211,19 +1402,17 @@ void main() {
     expect(find.text('设置'), findsWidgets);
     expect(find.text('隐私状态'), findsOneWidget);
     expect(find.text('权限与可用性'), findsOneWidget);
-    expect(find.byTooltip('应用设置'), findsOneWidget);
+    expect(find.text('数据范围'), findsNothing);
+    expect(find.text('蓝牙权限'), findsNothing);
+
+    await tester.tap(find.text('权限与可用性'));
+    await tester.pump(const Duration(milliseconds: 300));
+
+    expect(find.text('应用设置'), findsOneWidget);
     expect(find.text('需要授权'), findsWidgets);
     expect(find.text('蓝牙权限'), findsOneWidget);
     expect(find.text('位置与网络名'), findsOneWidget);
-    await tester.drag(find.byType(ListView), const Offset(0, -760));
-    await tester.pump();
-
-    expect(find.text('数据范围'), findsOneWidget);
-    expect(find.text('共享状态'), findsOneWidget);
-    expect(find.text('最近位置'), findsOneWidget);
-    expect(find.text('绝不采集'), findsOneWidget);
-    expect(find.text('权限受限'), findsOneWidget);
-    expect(find.text('应用使用明细'), findsOneWidget);
+    expect(find.text('应用使用情况'), findsOneWidget);
   });
 
   testWidgets('Privacy tab uses iOS system scope wording',
@@ -1271,12 +1460,13 @@ void main() {
     expect(find.text('设置'), findsWidgets);
     expect(find.text('隐私状态'), findsOneWidget);
     expect(find.text('权限与可用性'), findsOneWidget);
-    expect(find.text('iOS 系统范围'), findsOneWidget);
-    expect(find.text('系统范围'), findsWidgets);
-    await tester.drag(find.byType(ListView), const Offset(0, -360));
-    await tester.pump();
 
-    expect(find.text('系统开放状态'), findsOneWidget);
+    await tester.tap(find.text('权限与可用性'));
+    await tester.pump(const Duration(milliseconds: 300));
+
+    expect(find.text('iOS 系统范围'), findsOneWidget);
+    expect(find.text('数据范围'), findsNothing);
+    expect(find.text('系统开放状态'), findsNothing);
     expect(find.text('权限受限'), findsNothing);
   });
 }

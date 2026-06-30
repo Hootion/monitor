@@ -158,6 +158,32 @@ class AppState extends ChangeNotifier {
     });
   }
 
+  Future<void> updateProfile({
+    required String displayName,
+    required String gender,
+    String? moodStatus,
+    List<int>? avatarBytes,
+    String? avatarFileName,
+    String? avatarMimeType,
+  }) async {
+    await _run(() async {
+      user = await api.updateProfile(
+        displayName: displayName,
+        moodStatus: moodStatus,
+        gender: gender,
+        avatarBytes: avatarBytes,
+        avatarFileName: avatarFileName,
+        avatarMimeType: avatarMimeType,
+      );
+      if (partner?.id == user?.id) {
+        partner = user;
+      }
+      if (overview?.partner.id == user?.id) {
+        await refreshPartner();
+      }
+    });
+  }
+
   Future<void> deleteMyData() async {
     await _run(() async {
       await api.deleteData();
